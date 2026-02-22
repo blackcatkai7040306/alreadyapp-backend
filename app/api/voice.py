@@ -61,7 +61,7 @@ async def speak(request: SpeakRequest):
         audio_bytes, content_type = await text_to_speech(
             voice_id=request.voice_id,
             text=request.text,
-            model_id=request.model_id,
+            model_id='eleven_multilingual_v2',
             speed=NARRATION_SPEED_VALUES[request.narration_speed],
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
