@@ -25,19 +25,17 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     """
     payload = {}
     if body.speed is not None:
-        payload["Speed"] = body.speed
+        payload["speed"] = body.speed
     if body.is_morning_reminder is not None:
-        payload["Morning_Reminder"] = body.is_morning_reminder
+        payload["morning_Reminder"] = body.is_morning_reminder
     if body.is_bedtime_reminder is not None:
-        payload["Bedtime_Reminder"] = body.is_bedtime_reminder
+        payload["bedtime_Reminder"] = body.is_bedtime_reminder
     if body.name is not None:
-        payload["Name"] = body.username
+        payload["name"] = body.username
     if body.email is not None:
-        payload["Email"] = body.email
+        payload["email"] = body.email
     if body.password is not None:
-        payload["Password"] = body.password
-    if body.city is not None:
-        payload["City"] = body.city
+        payload["password"] = body.password
     if not payload:
         raise HTTPException(status_code=400, detail="Provide at least one field: speed, is_morning_reminder, is_bedtime_reminder")
 

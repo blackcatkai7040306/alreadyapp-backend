@@ -55,6 +55,7 @@ class SpeakRequest(BaseModel):
     voice_id: str = Field(..., min_length=1)
     model_id: str = Field(default="eleven_multilingual_v2")
     narration_speed: Literal["low", "normal", "fast"] = Field(default="normal")
+    story_id: int | None = Field(None, description="If set, store the storage path in Stories.storage for this story")
 
 
 @router.post("/speak/", response_class=Response)
@@ -85,6 +86,8 @@ async def speak(request: SpeakRequest):
                     tmp_path,
                     file_options={"contentType": str(content_type), "upsert": "true"},
                 )
+                if request.story_id is not None:
+                    supabase.table("Stories").update({"storage": path}).eq("id", request.story_id).execute()
             finally:
                 try:
                     os.unlink(tmp_path)
