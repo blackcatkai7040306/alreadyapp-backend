@@ -8,11 +8,11 @@ router = APIRouter(prefix="/stories", tags=["stories"])
 
 
 @router.get("")
-async def get_stories(user_id: int = Query(..., description="Filter stories by this user ID")):
+async def get_stories(user_id: str = Query(..., description="Filter stories by this user ID")):
     """Get all stories for the given user_id, with desire_name from Desires (Desires.id = Stories.desire_id)."""
     supabase = get_supabase()
     try:
-        uid = user_id
+        uid = int(user_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="user_id must be an integer")
 
