@@ -1,6 +1,8 @@
 """Voice cloning and TTS endpoints."""
 
-import io
+import logging
+import os
+import tempfile
 import uuid
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -71,15 +73,23 @@ async def speak(request: SpeakRequest):
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
         bucket = settings.SUPABASE_STORAGE_BUCKET
         ext = "mp3" if "mpeg" in content_type or "mp3" in content_type else "mp4"
-        path = f"Record-Stories/{request.voice_id}/{uuid.uuid4().hex}.{ext}"
+        path = f"{request.voice_id}/{uuid.uuid4().hex}.{ext}"
         try:
-            supabase = get_supabase()
-            supabase.storage.from_(bucket).upload(
-                path=path,
-                file=io.BytesIO(audio_bytes),
-                file_options={"content-type": content_type, "upsert": True},
-            )
-        except Exception:
-            pass  # don't fail the request if storage upload fails
-
+            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
+            try:
+                supabase = get_supabase()
+                supabase.storage.from_(bucket).upload(
+                    path,
+                    tmp_path,
+                    file_options={"contentType": str(content_type), "upsert": "true"},
+                )
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except Exception as e:
+            logging.exception("Supabase storage upload failed: %s", e)
     return Response(content=audio_bytes, media_type=content_type)
