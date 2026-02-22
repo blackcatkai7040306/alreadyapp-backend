@@ -1,5 +1,7 @@
 """Voice cloning and TTS endpoints."""
 
+import io
+import uuid
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -7,7 +9,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.elevenlabs import NARRATION_SPEED_VALUES, add_voice, text_to_speech
+from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -53,7 +57,7 @@ class SpeakRequest(BaseModel):
 
 @router.post("/speak", response_class=Response)
 async def speak(request: SpeakRequest):
-    """Convert text to speech; returns audio (e.g. MP3) for playback."""
+    """Convert text to speech; store in Supabase Storage; return audio for playback."""
     try:
         audio_bytes, content_type = await text_to_speech(
             voice_id=request.voice_id,
@@ -63,4 +67,19 @@ async def speak(request: SpeakRequest):
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
+
+    if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+        bucket = settings.SUPABASE_STORAGE_BUCKET
+        ext = "mp3" if "mpeg" in content_type or "mp3" in content_type else "mp4"
+        path = f"Record-Stories/{request.voice_id}/{uuid.uuid4().hex}.{ext}"
+        try:
+            supabase = get_supabase()
+            supabase.storage.from_(bucket).upload(
+                path=path,
+                file=io.BytesIO(audio_bytes),
+                file_options={"content-type": content_type, "upsert": True},
+            )
+        except Exception:
+            pass  # don't fail the request if storage upload fails
+
     return Response(content=audio_bytes, media_type=content_type)
