@@ -24,6 +24,7 @@ def _raise_http_from_httpx(e: BaseException) -> None:
 
 @router.post("/clone")
 async def clone_voice(
+    user_id: int = Form(...),
     name: str = Form(...),
     files: list[UploadFile] = File(...),
 ):
@@ -42,7 +43,7 @@ async def clone_voice(
         file_tuples.append((f.filename or "audio", content, ct))
 
     try:
-        return await add_voice(name=name, files=file_tuples, remove_background_noise= 'false')
+        return await add_voice(name=name, files=file_tuples, user_id=user_id, remove_background_noise= 'false')
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
 
@@ -54,7 +55,7 @@ class SpeakRequest(BaseModel):
     narration_speed: Literal["low", "normal", "fast"] = Field(default="normal")
 
 
-@router.post("/speak", response_class=Response)
+@router.post("/speak/", response_class=Response)
 async def speak(request: SpeakRequest):
     """Convert text to speech; store in Supabase Storage; return audio for playback."""
     try:

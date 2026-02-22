@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from app.core.config import settings
-
+from app.core.supabase_client import get_supabase
 
 ELEVENLABS_ADD_VOICE_URL = "/v1/voices/add"
 
@@ -13,6 +13,7 @@ ELEVENLABS_ADD_VOICE_URL = "/v1/voices/add"
 async def add_voice(
     *,
     name: str,
+    user_id: int = None,
     files: list[tuple[str, bytes, str]],
     description: str | None = None,
     remove_background_noise: bool = False,
@@ -57,7 +58,12 @@ async def add_voice(
             files=files_payload,
         )
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        generated_voice_id = result.get("voice_id")
+        if user_id is not None and generated_voice_id:
+            supabase = get_supabase()
+            supabase.table("Users").update({"Voice_id": generated_voice_id}).eq("id", user_id).execute()
+        return result
 
 
 def _tts_url(voice_id: str) -> str:

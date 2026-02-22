@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.stories import router as stories_router
+from app.api.users import router as users_router
 from app.api.voice import router as voice_router
 from app.core.config import settings
 
@@ -21,6 +22,7 @@ app.add_middleware(
 
 app.include_router(voice_router, prefix="/api")
 app.include_router(stories_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
 
 
 @app.get("/")
