@@ -50,21 +50,28 @@ async def clone_voice(
 
 
 class SpeakRequest(BaseModel):
-    text: str = Field(..., min_length=1)
     voice_id: str = Field(..., min_length=1)
+    story_id: int = Field(..., description="Story id; content is read from Stories.content")
     model_id: str = Field(default="eleven_multilingual_v2")
     narration_speed: Literal["low", "normal", "fast"] = Field(default="normal")
-    story_id: int | None = Field(None, description="If set, store the storage path in Stories.storage for this story")
 
 
-@router.post("/speak/")
+@router.post("/speak")
 async def speak(request: SpeakRequest):
-    """Convert text to speech; store in Supabase Storage (public); return public URL for playback."""
+    """Get story content from Stories by story_id; convert to speech; store in Storage; return public URL."""
+    supabase = get_supabase()
+    r = supabase.table("Stories").select("content").eq("id", request.story_id).execute()
+    rows = r.data or []
+    row = rows[0] if rows else {}
+    text = (row.get("content") or row.get("Content") or "").strip()
+    if not text:
+        raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no content")
+
     try:
         audio_bytes, content_type = await text_to_speech(
             voice_id=request.voice_id,
-            text=request.text,
-            model_id="eleven_multilingual_v2",
+            text=text,
+            model_id=request.model_id,
             speed=NARRATION_SPEED_VALUES[request.narration_speed],
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
@@ -86,9 +93,8 @@ async def speak(request: SpeakRequest):
                     tmp_path,
                     file_options={"contentType": str(content_type), "upsert": "true"},
                 )
-                if request.story_id is not None:
-                    supabase.table("Stories").update({"storage": path}).eq("id", request.story_id).execute()
                 public_url = supabase.storage.from_(bucket).get_public_url(path)
+                supabase.table("Stories").update({"storage": path, "playUrl": public_url}).eq("id", request.story_id).execute()
             finally:
                 try:
                     os.unlink(tmp_path)
