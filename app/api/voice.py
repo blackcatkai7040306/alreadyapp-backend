@@ -6,7 +6,6 @@ import tempfile
 import uuid
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -58,19 +57,20 @@ class SpeakRequest(BaseModel):
     story_id: int | None = Field(None, description="If set, store the storage path in Stories.storage for this story")
 
 
-@router.post("/speak/", response_class=Response)
+@router.post("/speak/")
 async def speak(request: SpeakRequest):
-    """Convert text to speech; store in Supabase Storage; return audio for playback."""
+    """Convert text to speech; store in Supabase Storage (public); return public URL for playback."""
     try:
         audio_bytes, content_type = await text_to_speech(
             voice_id=request.voice_id,
             text=request.text,
-            model_id='eleven_multilingual_v2',
+            model_id="eleven_multilingual_v2",
             speed=NARRATION_SPEED_VALUES[request.narration_speed],
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
 
+    public_url = None
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
         bucket = settings.SUPABASE_STORAGE_BUCKET
         ext = "mp3" if "mpeg" in content_type or "mp3" in content_type else "mp4"
@@ -88,6 +88,7 @@ async def speak(request: SpeakRequest):
                 )
                 if request.story_id is not None:
                     supabase.table("Stories").update({"storage": path}).eq("id", request.story_id).execute()
+                public_url = supabase.storage.from_(bucket).get_public_url(path)
             finally:
                 try:
                     os.unlink(tmp_path)
@@ -95,4 +96,4 @@ async def speak(request: SpeakRequest):
                     pass
         except Exception as e:
             logging.exception("Supabase storage upload failed: %s", e)
-    return Response(content=audio_bytes, media_type=content_type)
+    return {"url": public_url, "content_type": content_type}
