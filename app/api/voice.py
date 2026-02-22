@@ -25,7 +25,6 @@ def _raise_http_from_httpx(e: BaseException) -> None:
 @router.post("/clone")
 async def clone_voice(
     name: str = Form(...),
-    remove_background_noise: bool = Form(False),
     files: list[UploadFile] = File(...),
 ):
     """Create a voice clone from uploaded audio; returns ElevenLabs voice_id."""
@@ -43,7 +42,7 @@ async def clone_voice(
         file_tuples.append((f.filename or "audio", content, ct))
 
     try:
-        return await add_voice(name=name, files=file_tuples, remove_background_noise=remove_background_noise)
+        return await add_voice(name=name, files=file_tuples, remove_background_noise= 'false')
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
 
