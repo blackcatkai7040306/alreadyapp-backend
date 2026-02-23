@@ -4,6 +4,8 @@ import logging
 import os
 import tempfile
 import uuid
+from datetime import datetime, timezone
+
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from typing import Literal
@@ -58,11 +60,17 @@ class SpeakRequest(BaseModel):
 
 @router.post("/speak")
 async def speak(request: SpeakRequest):
-    """Get story content from Stories by story_id; convert to speech; store in Storage; return public URL."""
+    """Get story content from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("content").eq("id", request.story_id).execute()
+    r = supabase.table("Stories").select("content, playUrl").eq("id", request.story_id).execute()
     rows = r.data or []
     row = rows[0] if rows else {}
+    play_url = (row.get("playUrl") or row.get("playurl") or "").strip()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if play_url:
+        supabase.table("Stories").update({"last_played": now_iso}).eq("id", request.story_id).execute()
+        return {"url": play_url, "content_type": "audio/mpeg"}
+
     text = (row.get("content") or row.get("Content") or "").strip()
     if not text:
         raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no content")
@@ -94,7 +102,7 @@ async def speak(request: SpeakRequest):
                     file_options={"contentType": str(content_type), "upsert": "true"},
                 )
                 public_url = supabase.storage.from_(bucket).get_public_url(path)
-                supabase.table("Stories").update({"storage": path, "playUrl": public_url}).eq("id", request.story_id).execute()
+                supabase.table("Stories").update({"storage": path, "playUrl": public_url, "last_played": now_iso}).eq("id", request.story_id).execute()
             finally:
                 try:
                     os.unlink(tmp_path)
