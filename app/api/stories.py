@@ -15,7 +15,6 @@ ENERGY_WORDS = ("Powerful", "Peaceful", "Abundant", "Grateful", "Confident")
 
 class GenerateStoryRequest(BaseModel):
     user_id: int = Field(..., description="User who owns this story")
-    desire_id: int = Field(..., description="Desire this story is for")
     first_name: str = Field(..., min_length=1, description="User's first name")
     dream_place: str = Field(..., min_length=1, description="Where their dream life takes place (city or country)")
     energy_word: str = Field(..., description="Energy word: Powerful, Peaceful, Abundant, Grateful, Confident")
@@ -60,9 +59,26 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
     return {"stories": rows}
 
 
+def _get_desire_id_by_name(supabase, category: str) -> int:
+    """Look up Desires.id by Desires.name (category name). Raises if not found."""
+    r = supabase.table("Desires").select("id").eq("name", category).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No desire found for category {category!r}. Add a row in Desires with name={category!r}.",
+        )
+    row = rows[0]
+    desire_id = row.get("id") or row.get("Id")
+    if desire_id is None:
+        raise HTTPException(status_code=500, detail="Desires row missing id")
+    return int(desire_id)
+
+
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
-    """Generate story title and content, then store in Stories with user_id and desire_id. Returns created story (id, title, content)."""
+    """Generate story title and content, then store in Stories. desire_id is looked up from Desires by category name."""
+    print(body)
     try:
         title, content = await generate_story(
             first_name=body.first_name,
@@ -80,11 +96,12 @@ async def generate_story_content(body: GenerateStoryRequest):
         raise HTTPException(status_code=502, detail=f"Story generation failed: {e!s}")
 
     supabase = get_supabase()
+    desire_id = _get_desire_id_by_name(supabase, body.category)
     try:
         r = supabase.table("Stories").insert({
             "title": title,
             "user_id": body.user_id,
-            "desire_id": body.desire_id,
+            "desire_id": desire_id,
             "content": content,
         }).execute()
     except Exception as e:
