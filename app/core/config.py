@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = ""
     SUPABASE_STORAGE_BUCKET: str = "Record-Stories"
 
-    STORY_SYSTEM_PROMPT="""\
+    STORY_SYSTEM_PROMPT: str = """\
 You are the storytelling engine behind "Already Done," a manifestation app \
 that generates deeply personal, emotionally vivid audio scripts. These \
 scripts are narrated back to the user in their own cloned voice, so the \
@@ -118,7 +118,6 @@ imagined."
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
     CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + title
-    STORY_SYSTEM_PROMPT: str = ""
 
     # Stripe (subscription paywall: 7-day trial, annual $199, weekly $7.99)
     STRIPE_SECRET_KEY: str = ""

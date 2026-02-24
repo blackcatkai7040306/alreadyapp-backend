@@ -19,21 +19,17 @@ TITLE_BY_CATEGORY = {
     "Home": "The Home That Was Already Yours",
 }
 
-# Default system prompt when STORY_SYSTEM_PROMPT is not set.
-DEFAULT_STORY_SYSTEM_PROMPT = """You are a writer for "Already Done" — a manifestation app. Your job is to write a personal story (past tense) that feels like a memory of the user's dream life already fulfilled.
+# Output format and the rule that describe_whats_already_yours is the primary engine (no default prompt; use config STORY_SYSTEM_PROMPT only).
+DESCRIBE_ENGINE_INSTRUCTION = """
 
-Rules:
-- Write entirely in the past tense, as if it has already happened.
-- Use the first name, location, energy word, category, optional loved one, and the user's own description of what's already theirs.
-- Tone: warm, specific, sensory, emotional. Not generic affirmations.
-- No meta-commentary; write as the lived experience."""
+**PRIMARY ENGINE — "Describe what's already theirs" (user's words):**
+This is the most important input. The story AND the title MUST be driven directly by this text. Do not substitute a generic or beautiful narrative. Every core idea, feeling, and detail in the story must come from what the user wrote. If their words are short, vague, or unusual, the story must still reflect and expand only from those words — never invent a different desire. The title must also reflect this same specific desire, not a generic category headline."""
 
-# Output format: title + story. Story must be 1000–2600 characters.
 OUTPUT_FORMAT_INSTRUCTION = f"""
 
 **Output format (follow exactly):**
 1. First line: TITLE: <your title>
-   Title style: "A Love That Was Already Yours", "The Love You'd Always Known", "The Abundance That Arrived" — short, evocative, past-tense. Match the category.
+   Title style: "A Love That Was Already Yours", "The Love You'd Always Known", "The Abundance That Arrived" — short, evocative. The title MUST reflect the user's specific "describe what's already theirs" content, not a generic category.
 2. One blank line.
 3. Then the story body only (no headers). The story must be between {STORY_MIN_CHARS} and {STORY_MAX_CHARS} characters. Do not exceed {STORY_MAX_CHARS} characters."""
 
@@ -48,11 +44,11 @@ def _build_user_message(
     someone_you_love: str | None = None,
 ) -> str:
     parts = [
+        f"Describe what's already theirs (user's words — PRIMARY SOURCE for story and title):\n{describe_whats_already_yours}",
         f"First name: {first_name}",
         f"Where their dream life takes place: {dream_place}",
         f"Their energy word: {energy_word}",
         f"Category: {category}",
-        f"Describe what's already theirs (user's words): {describe_whats_already_yours}",
     ]
     if someone_you_love:
         parts.append(f"Someone they love (include in the story if it fits): {someone_you_love}")
@@ -91,9 +87,10 @@ async def generate_story(
     """Generate a past-tense personal story. Returns (title, content). Content is capped at 2600 characters."""
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set")
-
-    base_prompt = system_prompt or settings.STORY_SYSTEM_PROMPT or DEFAULT_STORY_SYSTEM_PROMPT
-    prompt = base_prompt.rstrip() + OUTPUT_FORMAT_INSTRUCTION
+    base_prompt = (system_prompt or settings.STORY_SYSTEM_PROMPT or "").strip()
+    if not base_prompt:
+        raise ValueError("STORY_SYSTEM_PROMPT is not set; configure it in config.py or .env")
+    prompt = base_prompt.rstrip() + DESCRIBE_ENGINE_INSTRUCTION + OUTPUT_FORMAT_INSTRUCTION
     user_message = _build_user_message(
         first_name=first_name,
         dream_place=dream_place,
