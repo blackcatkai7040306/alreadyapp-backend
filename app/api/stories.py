@@ -14,6 +14,8 @@ ENERGY_WORDS = ("Powerful", "Peaceful", "Abundant", "Grateful", "Confident")
 
 
 class GenerateStoryRequest(BaseModel):
+    user_id: int = Field(..., description="User who owns this story")
+    desire_id: int = Field(..., description="Desire this story is for")
     first_name: str = Field(..., min_length=1, description="User's first name")
     dream_place: str = Field(..., min_length=1, description="Where their dream life takes place (city or country)")
     energy_word: str = Field(..., description="Energy word: Powerful, Peaceful, Abundant, Grateful, Confident")
@@ -60,7 +62,7 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
-    """Generate story title and content. Content is 1000–2600 characters. Title style: 'A Love That Was Already Yours', 'The Abundance That Arrived'."""
+    """Generate story title and content, then store in Stories with user_id and desire_id. Returns created story (id, title, content)."""
     try:
         title, content = await generate_story(
             first_name=body.first_name,
@@ -76,4 +78,22 @@ async def generate_story_content(body: GenerateStoryRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Story generation failed: {e!s}")
-    return {"title": title, "content": content}
+
+    supabase = get_supabase()
+    try:
+        r = supabase.table("Stories").insert({
+            "title": title,
+            "user_id": body.user_id,
+            "desire_id": body.desire_id,
+            "content": content,
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to store story: {e!s}")
+ 
+    rows = list(r.data or [])
+    created = rows[0] if rows else {}
+    return {
+        "id": created.get("id"),
+        "title": title,
+        "content": content,
+    }
