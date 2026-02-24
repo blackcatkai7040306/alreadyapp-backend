@@ -119,7 +119,14 @@ imagined."
     CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
     CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + title
     STORY_SYSTEM_PROMPT: str = ""
-   
+
+    # Stripe (subscription paywall: 7-day trial, annual $199, weekly $7.99)
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID_ANNUAL: str = ""
+    STRIPE_PRICE_ID_WEEKLY: str = ""
+    STRIPE_TRIAL_DAYS: int = 7
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
