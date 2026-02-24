@@ -60,9 +60,9 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
-    """Generate story content from onboarding inputs using Claude. Returns the narrative text (past tense)."""
+    """Generate story title and content. Content is 1000–2600 characters. Title style: 'A Love That Was Already Yours', 'The Abundance That Arrived'."""
     try:
-        content = await generate_story(
+        title, content = await generate_story(
             first_name=body.first_name,
             dream_place=body.dream_place,
             energy_word=body.energy_word,
@@ -76,4 +76,4 @@ async def generate_story_content(body: GenerateStoryRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Story generation failed: {e!s}")
-    return {"content": content}
+    return {"title": title, "content": content}

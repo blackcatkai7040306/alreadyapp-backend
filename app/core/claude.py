@@ -1,22 +1,41 @@
 """Claude API client for story generation."""
 
 import logging
+import re
 from anthropic import AsyncAnthropic
 
 from app.core.config import settings
 
-# Default system prompt when STORY_SYSTEM_PROMPT is not set (Already Done past-tense narrative).
-DEFAULT_STORY_SYSTEM_PROMPT = """You are a writer for "Already Done" — a manifestation app. Your job is to write a short, personal story (past tense, 1–3 minutes when read aloud) that feels like a memory of the user's dream life already fulfilled.
+# Story length: 1000–2600 characters (letters). Enforced in code.
+STORY_MIN_CHARS = 1000
+STORY_MAX_CHARS = 2600
+
+# Fallback title by category when model doesn't output TITLE: line (style: "A Love That Was Already Yours", "The Abundance That Arrived")
+TITLE_BY_CATEGORY = {
+    "Love": "A Love That Was Already Yours",
+    "Money": "The Abundance That Arrived",
+    "Career": "The Career That Was Already Yours",
+    "Health": "The Vitality That Was Already Yours",
+    "Home": "The Home That Was Already Yours",
+}
+
+# Default system prompt when STORY_SYSTEM_PROMPT is not set.
+DEFAULT_STORY_SYSTEM_PROMPT = """You are a writer for "Already Done" — a manifestation app. Your job is to write a personal story (past tense) that feels like a memory of the user's dream life already fulfilled.
 
 Rules:
 - Write entirely in the past tense, as if it has already happened.
 - Use the first name, location, energy word, category, optional loved one, and the user's own description of what's already theirs.
 - Tone: warm, specific, sensory, emotional. Not generic affirmations.
-- No meta-commentary; no "you had always wanted" — write as the lived experience.
-- Output only the story text, no titles or section headers unless they ask for one."""
+- No meta-commentary; write as the lived experience."""
 
-# Always appended to the system prompt so the model never exceeds the limit.
-WORD_LIMIT_INSTRUCTION = "\n\n**Strict length rule:** The story must be between 400 and 600 words. Do not exceed 600 words. If you are near 600 words, conclude the story within that limit."
+# Output format: title + story. Story must be 1000–2600 characters.
+OUTPUT_FORMAT_INSTRUCTION = f"""
+
+**Output format (follow exactly):**
+1. First line: TITLE: <your title>
+   Title style: "A Love That Was Already Yours", "The Love You'd Always Known", "The Abundance That Arrived" — short, evocative, past-tense. Match the category.
+2. One blank line.
+3. Then the story body only (no headers). The story must be between {STORY_MIN_CHARS} and {STORY_MAX_CHARS} characters. Do not exceed {STORY_MAX_CHARS} characters."""
 
 
 def _build_user_message(
@@ -40,6 +59,26 @@ def _build_user_message(
     return "\n\n".join(parts)
 
 
+def _parse_title_and_body(raw: str) -> tuple[str, str]:
+    """Parse 'TITLE: ...' from first line; rest is body."""
+    raw = raw.strip()
+    title_match = re.match(r"^TITLE:\s*(.+?)(?:\n|$)", raw, re.IGNORECASE | re.DOTALL)
+    if title_match:
+        title = title_match.group(1).strip()
+        body = raw[title_match.end() :].strip().lstrip("\n").strip()
+    else:
+        title = ""
+        body = raw
+    return title, body
+
+
+def _cap_to_chars(text: str, max_chars: int) -> str:
+    """Return text truncated to at most max_chars (by character)."""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars].rstrip()
+
+
 async def generate_story(
     first_name: str,
     dream_place: str,
@@ -48,13 +87,13 @@ async def generate_story(
     describe_whats_already_yours: str,
     someone_you_love: str | None = None,
     system_prompt: str | None = None,
-) -> str:
-    """Call Claude to generate a past-tense personal story from onboarding inputs. Returns the story text."""
+) -> tuple[str, str]:
+    """Generate a past-tense personal story. Returns (title, content). Content is capped at 2600 characters."""
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set")
 
     base_prompt = system_prompt or settings.STORY_SYSTEM_PROMPT or DEFAULT_STORY_SYSTEM_PROMPT
-    prompt = base_prompt.rstrip() + WORD_LIMIT_INSTRUCTION
+    prompt = base_prompt.rstrip() + OUTPUT_FORMAT_INSTRUCTION
     user_message = _build_user_message(
         first_name=first_name,
         dream_place=dream_place,
@@ -79,4 +118,9 @@ async def generate_story(
     if not message.content or not message.content[0].text:
         raise ValueError("Claude returned no text")
 
-    return message.content[0].text.strip()
+    raw = message.content[0].text.strip()
+    title, body = _parse_title_and_body(raw)
+    if not title and category in TITLE_BY_CATEGORY:
+        title = TITLE_BY_CATEGORY[category]
+    body = _cap_to_chars(body, STORY_MAX_CHARS)
+    return title, body

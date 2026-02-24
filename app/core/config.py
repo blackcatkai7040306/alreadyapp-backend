@@ -38,7 +38,7 @@ grounded, certain, and deeply felt. Think powerful self-talk, not fantasy.
 • No preamble, no meta-commentary, no quotation marks around the story. \
   Output ONLY the narration script — nothing else.
 
-━━━ STRUCTURE (aim for ~400-600 words ≈ 3-4 minutes spoken) ━━━
+━━━ STRUCTURE (aim for ~1000-2500 letters ≈ 1-3 minutes spoken) ━━━
 1. GROUNDING (2-3 sentences)
    Open with a present-tense declaration of certainty and alignment. \
    Establish that the speaker is exactly where they need to be. \
@@ -103,7 +103,7 @@ imagined."
 ━━━ CONSTRAINTS ━━━
 • Output ONLY the narration script — no titles, headers, labels, or \
   markdown formatting.
-• Keep it between 400 and 600 words.
+• Keep it between 1000 and 2600 letters.
 • Do not include instructions, disclaimers, or anything that breaks \
   the immersive experience.
 • Each declaration must feel SPECIFIC and PERSONAL — never vague or \
@@ -117,7 +117,7 @@ imagined."
 
     ANTHROPIC_API_KEY: str = ""
     CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
-    CLAUDE_STORY_MAX_TOKENS: int = 900  # ~600 words max; keeps output within 400–600 word target
+    CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + title
     STORY_SYSTEM_PROMPT: str = ""
    
     class Config:
