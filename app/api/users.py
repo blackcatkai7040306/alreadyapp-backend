@@ -1,5 +1,7 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException
 
 from pydantic import BaseModel, Field
 
@@ -9,10 +11,28 @@ from app.core.supabase_client import get_supabase
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+def _days_since(date_value) -> int:
+    """Return days between date_value and now (UTC). If date_value is missing or invalid, return 0."""
+    if date_value is None:
+        return 0
+    try:
+        if isinstance(date_value, str):
+            dt = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
+        else:
+            dt = date_value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt
+        return max(0, delta.days)
+    except (TypeError, ValueError):
+        return 0
+
+
 @router.get("/{user_id}")
 async def get_user_info(user_id: int):
     """
-    Get user info with synced subscription (from Stripe) and number of stories this user created.
+    Get user info with synced subscription, story_count (complete), day_streak (days since signup),
+    and active (number of stories not deleted). Stories table has is_deleted.
     """
     supabase = get_supabase()
     r = supabase.table("Users").select("*").eq("id", user_id).execute()
@@ -37,9 +57,14 @@ async def get_user_info(user_id: int):
             except Exception as e:
                 logging.exception("Failed to sync subscription in get_user_info: %s", e)
 
-    sr = supabase.table("Stories").select("id").eq("user_id", user_id).execute()
-    story_count = len(sr.data or [])
+    sr = supabase.table("Stories").select("id, is_deleted").eq("user_id", user_id).execute()
+    stories = sr.data or []
+    story_count = len(stories)
+    active = sum(1 for s in stories if not (s.get("is_deleted") or s.get("Is_Deleted")))
     user["story_count"] = story_count
+    user["complete"] = story_count
+    user["day_streak"] = _days_since(user.get("created_at") or user.get("Created_At"))
+    user["active"] = active
     return user
 
 
