@@ -14,7 +14,6 @@ router = APIRouter(prefix="/subscription", tags=["subscription"])
 PLAN_ANNUAL = "annual"
 PLAN_WEEKLY = "weekly"
 
-
 def _get_price_id(plan: str) -> str:
     if plan == PLAN_ANNUAL:
         return settings.STRIPE_PRICE_ID_ANNUAL
@@ -36,6 +35,25 @@ def datetime_from_timestamp(ts: int) -> "datetime":
     return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
+def _fetch_subscription_from_stripe(subscription_id: str) -> dict | None:
+    """Retrieve subscription from Stripe; return dict with status, plan, trial_end (iso) or None if not found/invalid."""
+    if not settings.STRIPE_SECRET_KEY:
+        return None
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+    except stripe.StripeError as e:
+        logging.warning("Stripe Subscription.retrieve %s: %s", subscription_id, e)
+        return None
+    status = (getattr(sub, "status", None) or sub.get("status") or "").lower()
+    trial_end_ts = getattr(sub, "trial_end", None) or sub.get("trial_end")
+    trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
+    items = (sub.get("items") or {}).get("data") or []
+    price_id = (items[0].get("price") or {}).get("id") if items else None
+    plan = _plan_from_price_id(price_id) if price_id else "unknown"
+    return {"status": status, "plan": plan, "trial_end": trial_end_iso}
+
+
 # ---- SetupIntent: for Payment Sheet (card, Apple Pay, Google Pay, Link) ----
 
 class CreateSetupIntentRequest(BaseModel):
@@ -45,11 +63,6 @@ class CreateSetupIntentRequest(BaseModel):
 
 @router.post("/setup-intent")
 async def create_setup_intent(body: CreateSetupIntentRequest):
-    """
-    Create a SetupIntent for the Payment Sheet. Returns client_secret and setup_intent_id.
-    App shows Payment Sheet with client_secret; after user completes, call POST /create with setup_intent_id.
-    Supports card, Apple Pay, Google Pay, Link.
-    """
     if not settings.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
 
@@ -98,9 +111,6 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
         "setup_intent_id": setup_intent.id,
     }
 
-
-# ---- Native Payment Sheet: create subscription with payment_method_id or setup_intent_id ----
-
 class CreateSubscriptionRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
     plan: str = Field(..., description="annual or weekly")
@@ -121,10 +131,6 @@ class CreateSubscriptionRequest(BaseModel):
 
 @router.post("/create")
 async def create_subscription(body: CreateSubscriptionRequest):
-    """
-    Native mobile flow: create (or reuse) Stripe Customer, attach payment method, create Subscription with 7-day trial.
-    Call after Payment Sheet completes: pass either payment_method_id (from SDK) or setup_intent_id (from POST /setup-intent).
-    """
     if not settings.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
     try:
@@ -241,95 +247,49 @@ async def create_subscription(body: CreateSubscriptionRequest):
         "trial_end": trial_end_iso,
     }
 
-
-# ---- Checkout Session (WebView) - optional ----
-
-class CreateCheckoutRequest(BaseModel):
-    user_id: int = Field(..., description="Your app user id (stored in client_reference_id)")
-    plan: str = Field(..., description="annual or weekly")
-    success_url: str = Field(..., description="URL to redirect after success (e.g. myapp://subscription/success)")
-    cancel_url: str = Field(..., description="URL to redirect if user cancels (e.g. myapp://subscription/cancel)")
-    customer_email: str | None = Field(None, description="Optional; prefill Stripe Checkout email")
-
-
-@router.post("/checkout")
-async def create_checkout(body: CreateCheckoutRequest):
-    """
-    Create a Stripe Checkout Session (7-day trial, then recurring).
-    Mobile app should open the returned URL in a browser/WebView.
-    """
-    if not settings.STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Stripe is not configured")
-    try:
-        price_id = _get_price_id(body.plan)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if not price_id:
-        raise HTTPException(status_code=503, detail=f"Stripe price not configured for plan {body.plan}")
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-    try:
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[
-                {
-                    "price": price_id,
-                    "quantity": 1,
-                }
-            ],
-            subscription_data={
-                "trial_period_days": settings.STRIPE_TRIAL_DAYS,
-            },
-            success_url=body.success_url,
-            cancel_url=body.cancel_url,
-            client_reference_id=str(body.user_id),
-            customer_email=body.customer_email or None,
-        )
-    except stripe.StripeError as e:
-        logging.exception("Stripe checkout error: %s", e)
-        raise HTTPException(status_code=502, detail="Checkout failed")
-
-    return {"url": session.url, "session_id": session.id}
-
-
 @router.get("/status")
 async def subscription_status(user_id: int = Query(..., description="App user id")):
     """
-    Return subscription status for Restore Purchase and feature gating.
-    Requires Users table columns: stripe_customer_id, stripe_subscription_id, subscription_status, subscription_plan, trial_end.
+    Return full user row (name, password, email, etc.) plus subscription status.
+    Syncs subscription with Stripe on every call, then returns all User data with subscription fields up to date.
     """
     supabase = get_supabase()
-    r = supabase.table("Users").select(
-        "stripe_customer_id",
-        "stripe_subscription_id",
-        "subscription_status",
-        "subscription_plan",
-        "trial_end",
-    ).eq("id", user_id).execute()
+    r = supabase.table("Users").select("*").eq("id", user_id).execute()
     rows = list(r.data or [])
     if not rows:
-        return {"active": False, "plan": None, "trial_end": None, "status": None}
-    row = rows[0]
+        raise HTTPException(status_code=404, detail="User not found")
+    row = dict(rows[0])
+    subscription_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
+
     status = row.get("subscription_status") or row.get("Subscription_Status")
     plan = row.get("subscription_plan") or row.get("Subscription_Plan")
     trial_end = row.get("trial_end") or row.get("Trial_End")
-    # active if trialing or active (Stripe subscription statuses)
-    active = str(status).lower() in ("active", "trialing")
-    return {
-        "active": active,
-        "plan": plan,
-        "trial_end": trial_end,
-        "status": status,
-    }
+
+    if subscription_id:
+        synced = _fetch_subscription_from_stripe(str(subscription_id))
+        if synced:
+            status = synced["status"]
+            plan = synced["plan"]
+            trial_end = synced["trial_end"]
+            row["subscription_status"] = status
+            row["subscription_plan"] = plan
+            row["trial_end"] = trial_end
+            try:
+                supabase.table("Users").update({
+                    "subscription_status": status,
+                    "subscription_plan": plan,
+                    "trial_end": trial_end,
+                }).eq("id", user_id).execute()
+            except Exception as e:
+                logging.exception("Failed to sync subscription status to DB: %s", e)
+
+    row["active"] = str(status or "").lower() in ("active", "trialing")
+    return row
 
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
-    """
-    Stripe webhook: verify signature and handle checkout.session.completed,
-    customer.subscription.updated, customer.subscription.deleted.
-    Configure in Stripe Dashboard: URL https://your-api/api/subscription/webhook
-    """
+
     if not settings.STRIPE_WEBHOOK_SECRET:
         raise HTTPException(status_code=503, detail="Webhook secret not configured")
     payload = await request.body()
