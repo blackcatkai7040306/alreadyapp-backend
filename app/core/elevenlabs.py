@@ -62,7 +62,7 @@ async def add_voice(
         generated_voice_id = result.get("voice_id")
         if user_id is not None and generated_voice_id:
             supabase = get_supabase()
-            supabase.table("Users").update({"Voice_id": generated_voice_id}).eq("id", user_id).execute()
+            supabase.table("Users").update({"voice_id": generated_voice_id}).eq("id", user_id).execute()
         return result
 
 
