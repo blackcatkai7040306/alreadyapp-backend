@@ -68,11 +68,8 @@ async def add_voice(
 
 def _tts_url(voice_id: str) -> str:
     return f"/v1/text-to-speech/{voice_id}"
-
-
-# Narration speed: ElevenLabs uses a numeric speed (1.0 = normal).
+    
 NARRATION_SPEED_VALUES = {"low": 0.8, "normal": 1.0, "fast": 1.2}
-
 
 async def text_to_speech(
     *,
@@ -81,21 +78,6 @@ async def text_to_speech(
     model_id: str = "eleven_multilingual_v2",
     speed: float = 1.0,
 ) -> tuple[bytes, str]:
-    """
-    Convert text to speech using ElevenLabs TTS.
-
-    Args:
-        voice_id: ElevenLabs voice ID (from clone or prebuilt).
-        text: Text to speak.
-        model_id: Model to use (default: eleven_multilingual_v2).
-        speed: Speech speed (1.0 = normal; <1 slower, >1 faster).
-
-    Returns:
-        (audio_bytes, content_type) e.g. (b"...", "audio/mpeg").
-
-    Raises:
-        httpx.HTTPStatusError: On API error.
-    """
     headers = {
         "xi-api-key": settings.ELEVENLABS_API_KEY,
         "Content-Type": "application/json",
