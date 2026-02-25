@@ -1,39 +1,35 @@
-"""Stories endpoint: list stories for a user; generate story content via Claude."""
+"""Stories endpoint: list stories for a user; generate story theme and story via Claude."""
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from app.core.claude import generate_story
+from app.core.config import CATEGORIES, ENERGY_WORDS
 from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
-# Onboarding inputs for story generation (from Already Done flow)
-CATEGORIES = ("Love", "Money", "Career", "Health", "Home")
-ENERGY_WORDS = ("Powerful", "Peaceful", "Abundant", "Grateful", "Confident")
-
 
 class GenerateStoryRequest(BaseModel):
     user_id: int = Field(..., description="User who owns this story")
-    first_name: str = Field(..., min_length=1, description="User's first name")
-    dream_place: str = Field(..., min_length=1, description="Where their dream life takes place (city or country)")
-    energy_word: str = Field(..., description="Energy word: Powerful, Peaceful, Abundant, Grateful, Confident")
-    category: str = Field(..., description="Category: Love, Money, Career, Health, Home")
-    describe_whats_already_yours: str = Field(..., min_length=1, description="User's description, past tense")
-    someone_you_love: str | None = Field(None, description="Someone they love (optional)")
+    name: str = Field(..., min_length=1, description="User's first name")
+    location: str = Field(..., min_length=1, description="Where their dream life takes place (city or country)")
+    energyWord: str = Field(..., description="Energy word: Powerful, Peaceful, Abundant, Grateful, Confident")
+    desireCategory: str = Field(..., description="Category: Love, Money, Career, Health, Home")
+    desireDescription: str = Field(..., min_length=1, description="User's description, past tense")
+    lovedOne: str | None = Field(None, description="Someone they love (optional)")
 
     @model_validator(mode="after")
     def check_energy_and_category(self):
-        if self.energy_word not in ENERGY_WORDS:
-            raise ValueError(f"energy_word must be one of: {ENERGY_WORDS}")
-        if self.category not in CATEGORIES:
-            raise ValueError(f"category must be one of: {CATEGORIES}")
+        if self.energyWord not in ENERGY_WORDS:
+            raise ValueError(f"energyWord must be one of: {ENERGY_WORDS}")
+        if self.desireCategory not in CATEGORIES:
+            raise ValueError(f"desireCategory must be one of: {CATEGORIES}")
         return self
 
 
 @router.get("")
 async def get_stories(user_id: str = Query(..., description="Filter stories by this user ID")):
-    """Get all stories for the given user_id, with desire_name from Desires (Desires.id = Stories.desire_id)."""
     supabase = get_supabase()
     try:
         uid = int(user_id)
@@ -61,7 +57,7 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
 def _get_desire_id_by_name(supabase, category: str) -> int:
     """Look up Desires.id by Desires.name (category name). Raises if not found."""
-    r = supabase.table("Desires").select("id").eq("name", category).execute()
+    r = supabase.table("Desires").select("id").eq("desireCategory", category).execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(
@@ -77,16 +73,37 @@ def _get_desire_id_by_name(supabase, category: str) -> int:
 
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
-    """Generate story title and content, then store in Stories. desire_id is looked up from Desires by category name."""
-    print(body)
+    # Match variable names to GenerateStoryRequest field names (self.user_id, self.name, ...)
+    user_id = body.user_id
+    name = body.name
+    location = body.location
+    energyWord = body.energyWord
+    desireCategory = body.desireCategory
+    desireDescription = body.desireDescription
+    lovedOne = body.lovedOne
+
+    supabase = get_supabase()
+    desire_id = _get_desire_id_by_name(supabase, desireCategory)
+    r = supabase.table("Stories").select("id", "theme", count="exact").eq("user_id", user_id).eq("desire_id", desire_id).order("id").execute()
+    rows = list(r.data or [])
+    existing_count = r.count if getattr(r, "count", None) is not None else len(rows)
+    story_count = existing_count + 1
+    previous_story_themes = [
+        (s.get("theme") or "").strip()
+        for s in rows
+        if (s.get("theme") or "").strip()
+    ]
+    print(previous_story_themes, story_count)
     try:
-        title, content = await generate_story(
-            first_name=body.first_name,
-            dream_place=body.dream_place,
-            energy_word=body.energy_word,
-            category=body.category,
-            describe_whats_already_yours=body.describe_whats_already_yours,
-            someone_you_love=body.someone_you_love,
+        theme, story = await generate_story(
+            name=name,
+            location=location,
+            energyWord=energyWord,
+            desireCategory=desireCategory,
+            desireDescription=desireDescription,
+            lovedOne=lovedOne,
+            storyCount=story_count,
+            previousStoryThemes=previous_story_themes,
         )
     except ValueError as e:
         if "ANTHROPIC_API_KEY" in str(e):
@@ -95,22 +112,20 @@ async def generate_story_content(body: GenerateStoryRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Story generation failed: {e!s}")
 
-    supabase = get_supabase()
-    desire_id = _get_desire_id_by_name(supabase, body.category)
     try:
         r = supabase.table("Stories").insert({
-            "title": title,
-            "user_id": body.user_id,
+            "theme": theme,
+            "user_id": user_id,
             "desire_id": desire_id,
-            "content": content,
+            "story": story,
         }).execute()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to store story: {e!s}")
- 
+
     rows = list(r.data or [])
     created = rows[0] if rows else {}
     return {
         "id": created.get("id"),
-        "title": title,
-        "content": content,
+        "theme": theme,
+        "story": story,
     }

@@ -51,16 +51,16 @@ async def clone_voice(
 
 class SpeakRequest(BaseModel):
     voice_id: str = Field(..., min_length=1)
-    story_id: int = Field(..., description="Story id; content is read from Stories.content")
+    story_id: int = Field(..., description="Story id; story text is read from Stories.story")
     model_id: str = Field(default="eleven_multilingual_v2")
     narration_speed: Literal["low", "normal", "fast"] = Field(default="normal")
 
 
 @router.post("/speak")
 async def speak(request: SpeakRequest):
-    """Get story content from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
+    """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("content, playUrl").eq("id", request.story_id).execute()
+    r = supabase.table("Stories").select("story, playUrl").eq("id", request.story_id).execute()
     rows = r.data or []
     row = rows[0] if rows else {}
     play_url = (row.get("playUrl") or row.get("playurl") or "").strip()
@@ -69,9 +69,9 @@ async def speak(request: SpeakRequest):
         supabase.table("Stories").update({"last_played": now_iso}).eq("id", request.story_id).execute()
         return {"url": play_url, "content_type": "audio/mpeg"}
 
-    text = (row.get("content") or row.get("Content") or "").strip()
+    text = (row.get("story") or row.get("Story") or "").strip()
     if not text:
-        raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no content")
+        raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no story text")
 
     try:
         audio_bytes, content_type = await text_to_speech(

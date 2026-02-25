@@ -7,44 +7,46 @@ from anthropic import AsyncAnthropic
 from app.core.config import (
     settings,
     STORY_MAX_CHARS,
-    TITLE_BY_CATEGORY,
-    DESCRIBE_ENGINE_INSTRUCTION,
+    THEME_BY_CATEGORY,
     OUTPUT_FORMAT_INSTRUCTION,
 )
+from app.core.story_prompts import CLIENT_SYSTEM_PROMPT, get_story_user_prompt
 
 
-def _build_user_message(
+def _user_data(
     *,
-    first_name: str,
-    dream_place: str,
-    energy_word: str,
-    category: str,
-    describe_whats_already_yours: str,
-    someone_you_love: str | None = None,
-) -> str:
-    parts = [
-        f"Describe what's already theirs (user's words — PRIMARY SOURCE for story and title):\n{describe_whats_already_yours}",
-        f"First name: {first_name}",
-        f"Where their dream life takes place: {dream_place}",
-        f"Their energy word: {energy_word}",
-        f"Category: {category}",
-    ]
-    if someone_you_love:
-        parts.append(f"Someone they love (include in the story if it fits): {someone_you_love}")
-    return "\n\n".join(parts)
+    name: str,
+    location: str,
+    energyWord: str,
+    desireCategory: str,
+    desireDescription: str,
+    lovedOne: str | None,
+    storyCount: int,
+    previousStoryThemes: list[str],
+) -> dict:
+    return {
+        "name": name,
+        "location": location,
+        "energyWord": energyWord,
+        "lovedOne": lovedOne or "Not provided",
+        "desireCategory": desireCategory,
+        "desireDescription": desireDescription,
+        "storyCount": storyCount,
+        "previousStoryThemes": previousStoryThemes,
+    }
 
 
-def _parse_title_and_body(raw: str) -> tuple[str, str]:
-    """Parse 'TITLE: ...' from first line; rest is body."""
+def _parse_theme_and_story(raw: str) -> tuple[str, str]:
+    """Parse 'THEME: ...' or 'TITLE: ...' from first line; rest is story."""
     raw = raw.strip()
-    title_match = re.match(r"^TITLE:\s*(.+?)(?:\n|$)", raw, re.IGNORECASE | re.DOTALL)
-    if title_match:
-        title = title_match.group(1).strip()
-        body = raw[title_match.end() :].strip().lstrip("\n").strip()
+    theme_match = re.match(r"^(?:THEME|TITLE):\s*(.+?)(?:\n|$)", raw, re.IGNORECASE | re.DOTALL)
+    if theme_match:
+        theme = theme_match.group(1).strip()
+        story = raw[theme_match.end() :].strip().lstrip("\n").strip()
     else:
-        title = ""
-        body = raw
-    return title, body
+        theme = ""
+        story = raw
+    return theme, story
 
 
 def _cap_to_chars(text: str, max_chars: int) -> str:
@@ -54,30 +56,63 @@ def _cap_to_chars(text: str, max_chars: int) -> str:
     return text[: max_chars].rstrip()
 
 
+# Theme extraction prompt (from client extractStoryTheme) for story evolution tracking
+EXTRACT_THEME_USER = """Read this manifestation story and extract the main theme in 2-4 words:
+
+{story}
+
+Theme:"""
+
+
+async def extract_story_theme(story_text: str) -> str:
+    """Extract the main theme in 2-4 words from a story (for previous_story_themes / evolution)."""
+    if not story_text or not story_text.strip():
+        return ""
+    if not settings.ANTHROPIC_API_KEY:
+        return ""
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    try:
+        message = await client.messages.create(
+            model=settings.CLAUDE_STORY_MODEL,
+            max_tokens=50,
+            messages=[{"role": "user", "content": EXTRACT_THEME_USER.format(story=story_text.strip())}],
+        )
+    except Exception as e:
+        logging.warning("Theme extraction failed: %s", e)
+        return ""
+    if not message.content or not message.content[0].text:
+        return ""
+    return message.content[0].text.strip()
+
+
 async def generate_story(
-    first_name: str,
-    dream_place: str,
-    energy_word: str,
-    category: str,
-    describe_whats_already_yours: str,
-    someone_you_love: str | None = None,
+    name: str,
+    location: str,
+    energyWord: str,
+    desireCategory: str,
+    desireDescription: str,
+    lovedOne: str | None = None,
+    storyCount: int = 1,
+    previousStoryThemes: list[str] | None = None,
     system_prompt: str | None = None,
 ) -> tuple[str, str]:
-    """Generate a past-tense personal story. Returns (title, content). Content is capped at 2600 characters."""
+    """Generate a past-tense personal story. Returns (theme, story). Story is capped at STORY_MAX_CHARS."""
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set")
-    base_prompt = (system_prompt or settings.STORY_SYSTEM_PROMPT or "").strip()
-    if not base_prompt:
-        raise ValueError("STORY_SYSTEM_PROMPT is not set; configure it in config.py or .env")
-    prompt = base_prompt.rstrip() + DESCRIBE_ENGINE_INSTRUCTION + OUTPUT_FORMAT_INSTRUCTION
-    user_message = _build_user_message(
-        first_name=first_name,
-        dream_place=dream_place,
-        energy_word=energy_word,
-        category=category,
-        describe_whats_already_yours=describe_whats_already_yours,
-        someone_you_love=someone_you_love,
+    base_prompt = (system_prompt or settings.STORY_SYSTEM_PROMPT or "").strip() or CLIENT_SYSTEM_PROMPT.strip()
+    prompt = base_prompt.rstrip() + OUTPUT_FORMAT_INSTRUCTION
+    themes = previousStoryThemes or []
+    user_data = _user_data(
+        name=name,
+        location=location,
+        energyWord=energyWord,
+        desireCategory=desireCategory,
+        desireDescription=desireDescription,
+        lovedOne=lovedOne,
+        storyCount=storyCount,
+        previousStoryThemes=themes,
     )
+    user_message = get_story_user_prompt(storyCount, user_data)
 
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
@@ -95,8 +130,8 @@ async def generate_story(
         raise ValueError("Claude returned no text")
 
     raw = message.content[0].text.strip()
-    title, body = _parse_title_and_body(raw)
-    if not title and category in TITLE_BY_CATEGORY:
-        title = TITLE_BY_CATEGORY[category]
-    body = _cap_to_chars(body, STORY_MAX_CHARS)
-    return title, body
+    theme, story = _parse_theme_and_story(raw)
+    if not theme and desireCategory in THEME_BY_CATEGORY:
+        theme = THEME_BY_CATEGORY[desireCategory]
+    story = _cap_to_chars(story, STORY_MAX_CHARS)
+    return theme, story

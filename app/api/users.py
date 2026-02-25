@@ -60,10 +60,10 @@ async def get_user_info(user_id: int):
     sr = supabase.table("Stories").select("id, is_deleted").eq("user_id", user_id).execute()
     stories = sr.data or []
     story_count = len(stories)
-    active = sum(1 for s in stories if not (s.get("is_deleted") or s.get("Is_Deleted")))
+    active = sum(1 for s in stories if not (s.get("is_deleted")))
     user["story_count"] = story_count
     user["complete"] = story_count
-    user["day_streak"] = _days_since(user.get("created_at") or user.get("Created_At"))
+    user["day_streak"] = _days_since(user.get("created_at"))
     user["active"] = active
     return user
 
@@ -95,6 +95,15 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["email"] = body.email
     if body.password is not None:
         payload["password"] = body.password
+    if body.first_name is not None:
+        payload["name"] = body.first_name
+    if body.dream_place is not None:
+        payload["location"] = body.location
+    if body.energy_word is not None:
+        payload["energyWord"] = body.energyWord
+    if body.someone_you_love is not None:
+        payload["lovedOne"] = body.lovedOne
+  
     if not payload:
         raise HTTPException(status_code=400, detail="Provide at least one field: speed, is_morning_reminder, is_bedtime_reminder")
 
