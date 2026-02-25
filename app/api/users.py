@@ -74,6 +74,12 @@ class UserUpdateRequest(BaseModel):
     speed: str | None = Field(None, description="Speed (text)")
     is_morning_reminder: bool | None = Field(None, description="Morning reminder on/off")
     is_bedtime_reminder: bool | None = Field(None, description="Bedtime reminder on/off")
+    name: str | None = Field(None, description="User's name")
+    email: str | None = Field(None, description="User's email")
+    password: str | None = Field(None, description="User's password")
+    location: str | None = Field(None, description="User's location")
+    energyWord: str | None = Field(None, description="User's energy word")
+    lovedOne: str | None = Field(None, description="User's loved one")
 
 
 @router.patch("/{user_id}")

@@ -116,6 +116,7 @@ async def speak(request: SpeakRequest):
                 update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso}
                 if play_length is not None:
                     update_payload["play_length"] = play_length
+                print(play_length)
                 supabase.table("Stories").update(update_payload).eq("id", request.story_id).execute()
             finally:
                 try:
