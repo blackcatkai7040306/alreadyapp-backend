@@ -18,21 +18,6 @@ async def add_voice(
     description: str | None = None,
     remove_background_noise: bool = False,
 ) -> dict:
-    """
-    Create an instant voice clone (IVC) via ElevenLabs API.
-
-    Args:
-        name: Display name for the voice.
-        files: List of (filename, file_bytes, content_type) for audio samples.
-        description: Optional voice description.
-        remove_background_noise: Whether to remove background noise from samples.
-
-    Returns:
-        {"voice_id": "...", "requires_verification": bool}
-
-    Raises:
-        httpx.HTTPStatusError: On API error (e.g. 401, 422).
-    """
     headers = {
         "xi-api-key": settings.ELEVENLABS_API_KEY,
         "Accept": "application/json",
@@ -68,8 +53,20 @@ async def add_voice(
 
 def _tts_url(voice_id: str) -> str:
     return f"/v1/text-to-speech/{voice_id}"
-    
-NARRATION_SPEED_VALUES = {"low": 0.8, "normal": 1.0, "fast": 1.2}
+
+
+# Client options: Slow (0.85x), Normal (1.0x), Very Fast (1.35x), Fast (1.5x).
+# ElevenLabs API allows speed in [0.7, 1.2]; we map Very Fast→1.15, Fast→1.2.
+NARRATION_SPEED_VALUES = {
+    "slow": 0.85,
+    "normal": 1.0,
+    "very_fast": 1.15,
+    "fast": 1.2,
+}
+
+# ElevenLabs voice_settings.speed allowed range
+TTS_SPEED_MIN, TTS_SPEED_MAX = 0.7, 1.2
+
 
 async def text_to_speech(
     *,
@@ -78,6 +75,7 @@ async def text_to_speech(
     model_id: str = "eleven_multilingual_v2",
     speed: float = 1.0,
 ) -> tuple[bytes, str]:
+    speed = max(TTS_SPEED_MIN, min(TTS_SPEED_MAX, float(speed)))
     headers = {
         "xi-api-key": settings.ELEVENLABS_API_KEY,
         "Content-Type": "application/json",

@@ -46,8 +46,8 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
     desire_ids = list({s["desire_id"] for s in rows if s.get("desire_id") is not None})
     name_by_id = {}
     if desire_ids:
-        dr = supabase.table("Desires").select("id, name").in_("id", desire_ids).execute()
-        name_by_id = {d["id"]: d.get("name") for d in (dr.data or [])}
+        dr = supabase.table("Desires").select("id, desireCategory").in_("id", desire_ids).execute()
+        name_by_id = {d["id"]: d.get("desireCategory") for d in (dr.data or [])}
 
     for row in rows:
         row["desire_name"] = name_by_id.get(row.get("desire_id"))
@@ -56,13 +56,13 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
 
 def _get_desire_id_by_name(supabase, category: str) -> int:
-    """Look up Desires.id by Desires.name (category name). Raises if not found."""
+    """Look up Desires.id by Desires.desireCategory. Raises if not found."""
     r = supabase.table("Desires").select("id").eq("desireCategory", category).execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(
             status_code=404,
-            detail=f"No desire found for category {category!r}. Add a row in Desires with name={category!r}.",
+            detail=f"No desire found for category {category!r}. Add a row in Desires with desireCategory={category!r}.",
         )
     row = rows[0]
     desire_id = row.get("id") or row.get("Id")

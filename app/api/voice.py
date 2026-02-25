@@ -53,7 +53,10 @@ class SpeakRequest(BaseModel):
     voice_id: str = Field(..., min_length=1)
     story_id: int = Field(..., description="Story id; story text is read from Stories.story")
     model_id: str = Field(default="eleven_multilingual_v2")
-    narration_speed: Literal["low", "normal", "fast"] = Field(default="normal")
+    narration_speed: Literal["slow", "normal", "very_fast", "fast"] = Field(
+        default="normal",
+        description="Slow (0.85x), Normal (1.0x), Very Fast (1.15x), Fast (1.2x); ElevenLabs max 1.2x",
+    )
 
 
 @router.post("/speak")
