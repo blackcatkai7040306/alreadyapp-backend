@@ -1,8 +1,8 @@
-"""Stripe subscription: checkout (mobile opens URL), webhook, status for Restore Purchase."""
+"""Stripe subscription: native Payment Sheet (create subscription) and Checkout Session (WebView), webhook, status."""
 
 import logging
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 import stripe
 from app.core.config import settings
@@ -22,6 +22,227 @@ def _get_price_id(plan: str) -> str:
         return settings.STRIPE_PRICE_ID_WEEKLY
     raise ValueError(f"plan must be {PLAN_ANNUAL!r} or {PLAN_WEEKLY!r}")
 
+
+def _plan_from_price_id(price_id: str) -> str:
+    if price_id == settings.STRIPE_PRICE_ID_ANNUAL:
+        return PLAN_ANNUAL
+    if price_id == settings.STRIPE_PRICE_ID_WEEKLY:
+        return PLAN_WEEKLY
+    return "unknown"
+
+
+def datetime_from_timestamp(ts: int) -> "datetime":
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+# ---- SetupIntent: for Payment Sheet (card, Apple Pay, Google Pay, Link) ----
+
+class CreateSetupIntentRequest(BaseModel):
+    user_id: int = Field(..., description="App user id")
+    customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
+
+
+@router.post("/setup-intent")
+async def create_setup_intent(body: CreateSetupIntentRequest):
+    """
+    Create a SetupIntent for the Payment Sheet. Returns client_secret and setup_intent_id.
+    App shows Payment Sheet with client_secret; after user completes, call POST /create with setup_intent_id.
+    Supports card, Apple Pay, Google Pay, Link.
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    supabase = get_supabase()
+
+    r = supabase.table("Users").select("stripe_customer_id").eq("id", body.user_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    row = rows[0]
+    customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
+
+    if not customer_id:
+        if not body.customer_email or not body.customer_email.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_email required when user has no Stripe customer yet",
+            )
+        try:
+            customer = stripe.Customer.create(
+                email=body.customer_email.strip(),
+                metadata={"user_id": str(body.user_id)},
+            )
+            customer_id = customer.id
+            supabase.table("Users").update({"stripe_customer_id": customer_id}).eq("id", body.user_id).execute()
+        except stripe.StripeError as e:
+            logging.exception("Stripe Customer.create error: %s", e)
+            raise HTTPException(status_code=502, detail="Failed to create customer")
+    else:
+        customer_id = str(customer_id)
+
+    try:
+        setup_intent = stripe.SetupIntent.create(
+            customer=customer_id,
+            payment_method_types=["card", "apple_pay", "google_pay", "link"],
+            usage="off_session",
+            metadata={"user_id": str(body.user_id)},
+        )
+    except stripe.StripeError as e:
+        logging.exception("Stripe SetupIntent.create error: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to create SetupIntent")
+
+    return {
+        "client_secret": setup_intent.client_secret,
+        "setup_intent_id": setup_intent.id,
+    }
+
+
+# ---- Native Payment Sheet: create subscription with payment_method_id or setup_intent_id ----
+
+class CreateSubscriptionRequest(BaseModel):
+    user_id: int = Field(..., description="App user id")
+    plan: str = Field(..., description="annual or weekly")
+    payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from SDK")
+    setup_intent_id: str | None = Field(None, description="Or pass setup_intent_id after Payment Sheet completes; backend will resolve to payment_method_id")
+    customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
+
+    @model_validator(mode="after")
+    def require_payment_method_or_setup_intent(self):
+        pm = (self.payment_method_id or "").strip()
+        si = (self.setup_intent_id or "").strip()
+        if not pm and not si:
+            raise ValueError("Provide either payment_method_id or setup_intent_id")
+        if pm and si:
+            raise ValueError("Provide only one of payment_method_id or setup_intent_id")
+        return self
+
+
+@router.post("/create")
+async def create_subscription(body: CreateSubscriptionRequest):
+    """
+    Native mobile flow: create (or reuse) Stripe Customer, attach payment method, create Subscription with 7-day trial.
+    Call after Payment Sheet completes: pass either payment_method_id (from SDK) or setup_intent_id (from POST /setup-intent).
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    try:
+        price_id = _get_price_id(body.plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not price_id:
+        raise HTTPException(status_code=503, detail=f"Stripe price not configured for plan {body.plan}")
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    supabase = get_supabase()
+
+    payment_method_id: str = (body.payment_method_id or "").strip()
+    if body.setup_intent_id:
+        try:
+            si = stripe.SetupIntent.retrieve(body.setup_intent_id.strip())
+        except stripe.StripeError as e:
+            logging.exception("Stripe SetupIntent.retrieve error: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid or expired setup_intent_id")
+        if si.status != "succeeded":
+            raise HTTPException(
+                status_code=400,
+                detail=f"SetupIntent not completed (status={si.status}). User must complete the Payment Sheet first.",
+            )
+        payment_method_id = si.payment_method
+        if not payment_method_id:
+            raise HTTPException(status_code=400, detail="SetupIntent has no payment method")
+        if isinstance(payment_method_id, str):
+            pass
+        else:
+            payment_method_id = getattr(payment_method_id, "id", None) or str(payment_method_id)
+    if not payment_method_id:
+        raise HTTPException(status_code=400, detail="payment_method_id or setup_intent_id required")
+
+    # 1) Get or create Stripe customer for this user
+    r = supabase.table("Users").select("stripe_customer_id").eq("id", body.user_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    row = rows[0]
+    customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
+
+    if not customer_id:
+        if not body.customer_email or not body.customer_email.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_email required when user has no Stripe customer yet",
+            )
+        try:
+            customer = stripe.Customer.create(
+                email=body.customer_email.strip(),
+                metadata={"user_id": str(body.user_id)},
+            )
+            customer_id = customer.id
+            supabase.table("Users").update({"stripe_customer_id": customer_id}).eq("id", body.user_id).execute()
+        except stripe.StripeError as e:
+            logging.exception("Stripe Customer.create error: %s", e)
+            raise HTTPException(status_code=502, detail="Failed to create customer")
+    else:
+        customer_id = str(customer_id)
+
+    # 2) Attach payment method to customer (if not already) and set as default
+    try:
+        stripe.PaymentMethod.attach(payment_method_id, customer=customer_id)
+    except stripe.StripeError as e:
+        if "already been attached" in (e.user_message or "") or "already attached" in str(e).lower():
+            pass  # SetupIntent confirmation already attached it
+        else:
+            logging.exception("Stripe PaymentMethod.attach error: %s", e)
+            raise HTTPException(status_code=502, detail="Failed to attach payment method")
+    try:
+        stripe.Customer.modify(
+            customer_id,
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+    except stripe.StripeError as e:
+        logging.exception("Stripe Customer.modify error: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to set default payment method")
+
+    # 3) Create subscription with trial
+    try:
+        sub = stripe.Subscription.create(
+            customer=customer_id,
+            items=[{"price": price_id}],
+            default_payment_method=payment_method_id,
+            trial_period_days=settings.STRIPE_TRIAL_DAYS,
+            metadata={"user_id": str(body.user_id)},
+        )
+    except stripe.StripeError as e:
+        logging.exception("Stripe Subscription.create error: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to create subscription")
+
+    # 4) Update Users with subscription info (webhook will also keep it in sync)
+    items = (sub.get("items") or {}).get("data") or []
+    price_id_used = (items[0].get("price") or {}).get("id") if items else None
+    plan = _plan_from_price_id(price_id_used)
+    status = (sub.get("status") or "trialing").lower()
+    trial_end_ts = sub.get("trial_end")
+    trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
+    try:
+        supabase.table("Users").update({
+            "stripe_subscription_id": sub.id,
+            "subscription_status": status,
+            "subscription_plan": plan,
+            "trial_end": trial_end_iso,
+        }).eq("id", body.user_id).execute()
+    except Exception as e:
+        logging.exception("Failed to update Users with subscription: %s", e)
+
+    return {
+        "subscription_id": sub.id,
+        "status": status,
+        "plan": plan,
+        "trial_end": trial_end_iso,
+    }
+
+
+# ---- Checkout Session (WebView) - optional ----
 
 class CreateCheckoutRequest(BaseModel):
     user_id: int = Field(..., description="Your app user id (stored in client_reference_id)")
@@ -147,10 +368,11 @@ async def stripe_webhook(request: Request):
         except stripe.StripeError as e:
             logging.exception("Failed to retrieve subscription %s: %s", subscription_id, e)
             return {"received": True}
+            
         trial_end_ts = getattr(sub, "trial_end", None) or sub.get("trial_end")
         items = (sub.get("items") or {}).get("data") or []
         price_id = (items[0].get("price") or {}).get("id") if items else None
-        plan = PLAN_ANNUAL if price_id == settings.STRIPE_PRICE_ID_ANNUAL else (PLAN_WEEKLY if price_id == settings.STRIPE_PRICE_ID_WEEKLY else None) or "unknown"
+        plan = _plan_from_price_id(price_id) if price_id else "unknown"
         status = (getattr(sub, "status", None) or sub.get("status") or "active").lower()
         trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
         try:
@@ -165,6 +387,27 @@ async def stripe_webhook(request: Request):
             logging.exception("Failed to update Users with subscription: %s", e)
         return {"received": True}
 
+    if event["type"] == "customer.subscription.created":
+        sub = event["data"]["object"]
+        subscription_id = sub["id"]
+        customer_id = sub.get("customer")
+        trial_end_ts = sub.get("trial_end")
+        items = (sub.get("items") or {}).get("data") or []
+        price_id = (items[0].get("price") or {}).get("id") if items else None
+        plan = _plan_from_price_id(price_id) if price_id else "unknown"
+        status = (sub.get("status") or "trialing").lower()
+        trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
+        try:
+            supabase.table("Users").update({
+                "stripe_subscription_id": subscription_id,
+                "subscription_status": status,
+                "subscription_plan": plan,
+                "trial_end": trial_end_iso,
+            }).eq("stripe_customer_id", customer_id).execute()
+        except Exception as e:
+            logging.exception("Failed to update Users on subscription.created: %s", e)
+        return {"received": True}
+
     if event["type"] == "customer.subscription.updated":
         sub = event["data"]["object"]
         subscription_id = sub["id"]
@@ -172,10 +415,11 @@ async def stripe_webhook(request: Request):
         trial_end = sub.get("trial_end")
         items = (sub.get("items") or {}).get("data") or []
         price_id = (items[0].get("price") or {}).get("id") if items else None
-        plan = PLAN_ANNUAL if price_id == settings.STRIPE_PRICE_ID_ANNUAL else (PLAN_WEEKLY if price_id == settings.STRIPE_PRICE_ID_WEEKLY else None) or "unknown"
+        plan = _plan_from_price_id(price_id) if price_id else "unknown"
         payload = {"subscription_status": status, "subscription_plan": plan}
         if trial_end is not None:
             payload["trial_end"] = datetime_from_timestamp(trial_end).isoformat()
+      
         try:
             supabase.table("Users").update(payload).eq("stripe_subscription_id", subscription_id).execute()
         except Exception as e:
@@ -194,8 +438,3 @@ async def stripe_webhook(request: Request):
         return {"received": True}
 
     return {"received": True}
-
-
-def datetime_from_timestamp(ts: int) -> "datetime":
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(ts, tz=timezone.utc)
