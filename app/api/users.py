@@ -72,8 +72,8 @@ class UserUpdateRequest(BaseModel):
     """Body for updating user settings. Only provided fields are updated."""
 
     speed: str | None = Field(None, description="Speed (text)")
-    is_morning_reminder: bool | None = Field(None, description="Morning reminder on/off")
-    is_bedtime_reminder: bool | None = Field(None, description="Bedtime reminder on/off")
+    morningTime_Reminder: bool | None = Field(None, description="Morning reminder on/off")
+    bedTime_Reminder: bool | None = Field(None, description="Bedtime reminder on/off")
     name: str | None = Field(None, description="User's name")
     email: str | None = Field(None, description="User's email")
     password: str | None = Field(None, description="User's password")
@@ -91,23 +91,21 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     payload = {}
     if body.speed is not None:
         payload["speed"] = body.speed
-    if body.is_morning_reminder is not None:
-        payload["morning_Reminder"] = body.is_morning_reminder
-    if body.is_bedtime_reminder is not None:
-        payload["bedtime_Reminder"] = body.is_bedtime_reminder
+    if body.morningTime_Reminder is not None:
+        payload["morningTime_Reminder"] = body.is_morning_reminder
+    if body.bedTime_Reminder is not None:
+        payload["bedTime_Reminder"] = body.is_bedtime_reminder
     if body.name is not None:
         payload["name"] = body.username
     if body.email is not None:
         payload["email"] = body.email
     if body.password is not None:
         payload["password"] = body.password
-    if body.first_name is not None:
-        payload["name"] = body.first_name
-    if body.dream_place is not None:
+    if body.location is not None:
         payload["location"] = body.location
-    if body.energy_word is not None:
+    if body.energyWord is not None:
         payload["energyWord"] = body.energyWord
-    if body.someone_you_love is not None:
+    if body.lovedOne is not None:
         payload["lovedOne"] = body.lovedOne
   
     if not payload:
