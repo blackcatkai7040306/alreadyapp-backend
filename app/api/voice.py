@@ -1,5 +1,3 @@
-"""Voice cloning and TTS endpoints."""
-
 import logging
 import os
 import tempfile

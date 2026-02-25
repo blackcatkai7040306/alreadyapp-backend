@@ -1,5 +1,3 @@
-"""Stripe subscription: native Payment Sheet (create subscription) and Checkout Session (WebView), webhook, status."""
-
 import logging
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field, model_validator
@@ -52,9 +50,6 @@ def _fetch_subscription_from_stripe(subscription_id: str) -> dict | None:
     price_id = (items[0].get("price") or {}).get("id") if items else None
     plan = _plan_from_price_id(price_id) if price_id else "unknown"
     return {"status": status, "plan": plan, "trial_end": trial_end_iso}
-
-
-# ---- SetupIntent: for Payment Sheet (card, Apple Pay, Google Pay, Link) ----
 
 class CreateSetupIntentRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
@@ -249,10 +244,6 @@ async def create_subscription(body: CreateSubscriptionRequest):
 
 @router.get("/status")
 async def subscription_status(user_id: int = Query(..., description="App user id")):
-    """
-    Return full user row (name, password, email, etc.) plus subscription status.
-    Syncs subscription with Stripe on every call, then returns all User data with subscription fields up to date.
-    """
     supabase = get_supabase()
     r = supabase.table("Users").select("*").eq("id", user_id).execute()
     rows = list(r.data or [])

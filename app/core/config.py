@@ -9,7 +9,17 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
     SUPABASE_STORAGE_BUCKET: str = "Record-Stories"
+    # Claude API
+    ANTHROPIC_API_KEY: str = ""
+    CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
+    CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + title
 
+    # Stripe (subscription paywall: 7-day trial, annual $199, weekly $7.99)
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID_ANNUAL: str = ""
+    STRIPE_PRICE_ID_WEEKLY: str = ""
+    STRIPE_TRIAL_DAYS: int = 7
     STORY_SYSTEM_PROMPT: str = """\
 You are the storytelling engine behind "Already Done," a manifestation app \
 that generates deeply personal, emotionally vivid audio scripts. These \
@@ -115,16 +125,7 @@ imagined."
   Write in flowing, natural paragraphs.
 """
 
-    ANTHROPIC_API_KEY: str = ""
-    CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
-    CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + title
-
-    # Stripe (subscription paywall: 7-day trial, annual $199, weekly $7.99)
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_ID_ANNUAL: str = ""
-    STRIPE_PRICE_ID_WEEKLY: str = ""
-    STRIPE_TRIAL_DAYS: int = 7
+    
 
     class Config:
         env_file = ".env"
@@ -132,3 +133,29 @@ imagined."
 
 
 settings = Settings()
+
+# Story length and Claude instructions (used by app.core.claude)
+STORY_MIN_CHARS = 1000
+STORY_MAX_CHARS = 2600
+
+
+TITLE_BY_CATEGORY = {
+    "Love": "A Love That Was Already Yours",
+    "Money": "The Abundance That Arrived",
+    "Career": "The Career That Was Already Yours",
+    "Health": "The Vitality That Was Already Yours",
+    "Home": "The Home That Was Already Yours",
+}
+
+DESCRIBE_ENGINE_INSTRUCTION = """
+
+**PRIMARY ENGINE — "Describe what's already theirs" (user's words):**
+This is the most important input. The story AND the title MUST be driven directly by this text. Do not substitute a generic or beautiful narrative. Every core idea, feeling, and detail in the story must come from what the user wrote. If their words are short, vague, or unusual, the story must still reflect and expand only from those words — never invent a different desire. The title must also reflect this same specific desire, not a generic category headline."""
+
+OUTPUT_FORMAT_INSTRUCTION = f"""
+
+**Output format (follow exactly):**
+1. First line: TITLE: <your title>
+   Title style: "A Love That Was Already Yours", "The Love You'd Always Known", "The Abundance That Arrived" — short, evocative. The title MUST reflect the user's specific "describe what's already theirs" content, not a generic category.
+2. One blank line.
+3. Then the story body only (no headers). The story must be between {STORY_MIN_CHARS} and {STORY_MAX_CHARS} characters. Do not exceed {STORY_MAX_CHARS} characters."""

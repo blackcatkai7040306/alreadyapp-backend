@@ -1,5 +1,3 @@
-"""User settings update endpoint (Supabase Users table)."""
-
 from fastapi import APIRouter, HTTPException
 
 from pydantic import BaseModel, Field

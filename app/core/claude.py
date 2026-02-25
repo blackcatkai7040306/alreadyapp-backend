@@ -4,34 +4,13 @@ import logging
 import re
 from anthropic import AsyncAnthropic
 
-from app.core.config import settings
-
-# Story length: 1000–2600 characters (letters). Enforced in code.
-STORY_MIN_CHARS = 1000
-STORY_MAX_CHARS = 2600
-
-# Fallback title by category when model doesn't output TITLE: line (style: "A Love That Was Already Yours", "The Abundance That Arrived")
-TITLE_BY_CATEGORY = {
-    "Love": "A Love That Was Already Yours",
-    "Money": "The Abundance That Arrived",
-    "Career": "The Career That Was Already Yours",
-    "Health": "The Vitality That Was Already Yours",
-    "Home": "The Home That Was Already Yours",
-}
-
-# Output format and the rule that describe_whats_already_yours is the primary engine (no default prompt; use config STORY_SYSTEM_PROMPT only).
-DESCRIBE_ENGINE_INSTRUCTION = """
-
-**PRIMARY ENGINE — "Describe what's already theirs" (user's words):**
-This is the most important input. The story AND the title MUST be driven directly by this text. Do not substitute a generic or beautiful narrative. Every core idea, feeling, and detail in the story must come from what the user wrote. If their words are short, vague, or unusual, the story must still reflect and expand only from those words — never invent a different desire. The title must also reflect this same specific desire, not a generic category headline."""
-
-OUTPUT_FORMAT_INSTRUCTION = f"""
-
-**Output format (follow exactly):**
-1. First line: TITLE: <your title>
-   Title style: "A Love That Was Already Yours", "The Love You'd Always Known", "The Abundance That Arrived" — short, evocative. The title MUST reflect the user's specific "describe what's already theirs" content, not a generic category.
-2. One blank line.
-3. Then the story body only (no headers). The story must be between {STORY_MIN_CHARS} and {STORY_MAX_CHARS} characters. Do not exceed {STORY_MAX_CHARS} characters."""
+from app.core.config import (
+    settings,
+    STORY_MAX_CHARS,
+    TITLE_BY_CATEGORY,
+    DESCRIBE_ENGINE_INSTRUCTION,
+    OUTPUT_FORMAT_INSTRUCTION,
+)
 
 
 def _build_user_message(
