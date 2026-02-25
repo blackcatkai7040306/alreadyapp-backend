@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import tempfile
@@ -5,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
+from mutagen import File as MutagenFile
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from typing import Literal
 
@@ -86,6 +88,14 @@ async def speak(request: SpeakRequest):
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
 
+    play_length = None
+    try:
+        audio = MutagenFile(io.BytesIO(audio_bytes))
+        if audio is not None and hasattr(audio, "info") and audio.info is not None:
+            play_length = round(audio.info.length, 2)
+    except Exception as e:
+        logging.warning("Could not get audio duration: %s", e)
+
     public_url = None
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
         bucket = settings.SUPABASE_STORAGE_BUCKET
@@ -103,7 +113,10 @@ async def speak(request: SpeakRequest):
                     file_options={"contentType": str(content_type), "upsert": "true"},
                 )
                 public_url = supabase.storage.from_(bucket).get_public_url(path)
-                supabase.table("Stories").update({"storage": path, "playUrl": public_url, "last_played": now_iso}).eq("id", request.story_id).execute()
+                update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso}
+                if play_length is not None:
+                    update_payload["play_length"] = play_length
+                supabase.table("Stories").update(update_payload).eq("id", request.story_id).execute()
             finally:
                 try:
                     os.unlink(tmp_path)
