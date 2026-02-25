@@ -96,7 +96,7 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     if body.bedTime_Reminder is not None:
         payload["bedTime_Reminder"] = body.is_bedtime_reminder
     if body.name is not None:
-        payload["name"] = body.username
+        payload["name"] = body.name
     if body.email is not None:
         payload["email"] = body.email
     if body.password is not None:
