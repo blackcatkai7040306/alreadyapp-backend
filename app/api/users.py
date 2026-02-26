@@ -72,8 +72,10 @@ class UserUpdateRequest(BaseModel):
     """Body for updating user settings. Only provided fields are updated."""
 
     speed: str | None = Field(None, description="Speed (text)")
-    morningTime_Reminder: bool | None = Field(None, description="Morning reminder on/off")
-    bedTime_Reminder: bool | None = Field(None, description="Bedtime reminder on/off")
+    morningTime_Reminder: bool | None = Field(None, description="Morning reminder time")
+    bedTime_Reminder: bool | None = Field(None, description="Bedtime reminder time")
+    is_MorningTime_Reminder: bool | None = Field(None, description="Morning reminder on/off")
+    is_BedTime_Reminder: bool | None = Field(None, description="Bedtime reminder on/off")
     name: str | None = Field(None, description="User's name")
     email: str | None = Field(None, description="User's email")
     password: str | None = Field(None, description="User's password")
@@ -95,6 +97,10 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["morningTime_Reminder"] = body.is_morning_reminder
     if body.bedTime_Reminder is not None:
         payload["bedTime_Reminder"] = body.is_bedtime_reminder
+    if body.is_MorningTime_Reminder is not None:
+        payload["is_MorningTime_Reminder"] = body.is_MorningTime_Reminder
+    if body.is_BedTime_Reminder is not None:
+        payload["is_BedTime_Reminder"] = body.is_BedTime_Reminder
     if body.name is not None:
         payload["name"] = body.name
     if body.email is not None:
