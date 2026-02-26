@@ -94,7 +94,7 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
     try:
         setup_intent = stripe.SetupIntent.create(
             customer=customer_id,
-            payment_method_types=["card", "apple_pay", "google_pay", "link"],
+            payment_method_types=["card"],
             usage="off_session",
             metadata={"user_id": str(body.user_id)},
         )
