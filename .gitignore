@@ -27,3 +27,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploaded audio (voice clone) for local inspection
+uploads/

@@ -25,6 +25,10 @@ def _raise_http_from_httpx(e: BaseException) -> None:
     raise HTTPException(status_code=502, detail="Voice service error")
 
 
+# Folder in project root where clone voice uploads are stored for inspection
+VOICE_CLONE_UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "voice_clone")
+
+
 @router.post("/clone")
 async def clone_voice(
     user_id: int = Form(...),
@@ -36,7 +40,9 @@ async def clone_voice(
         raise HTTPException(status_code=400, detail="At least one audio file is required")
 
     file_tuples: list[tuple[str, bytes, str]] = []
-    for f in files:
+    os.makedirs(VOICE_CLONE_UPLOADS_DIR, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    for i, f in enumerate(files):
         ct = f.content_type or "application/octet-stream"
         if not ct.startswith("audio/"):
             raise HTTPException(status_code=400, detail=f"Invalid file type: {f.filename or 'unknown'}. Use audio (MP3, WAV, etc.).")
@@ -44,6 +50,20 @@ async def clone_voice(
         if not content:
             raise HTTPException(status_code=400, detail=f"File is empty: {f.filename or 'unknown'}.")
         file_tuples.append((f.filename or "audio", content, ct))
+        # Store copy in project folder for inspection
+        base = (f.filename or "audio").rsplit(".", 1)[0] if (f.filename or "").find(".") >= 0 else (f.filename or "audio")
+        ext = (f.filename or "audio").rsplit(".", 1)[-1].lower() if (f.filename or "").find(".") >= 0 else "bin"
+        if ext in ("mp3", "wav", "m4a", "ogg", "webm", "flac"):
+            pass
+        else:
+            ext = "bin"
+        save_name = f"user{user_id}_{ts}_{i}_{base}.{ext}"
+        save_path = os.path.join(VOICE_CLONE_UPLOADS_DIR, save_name)
+        try:
+            with open(save_path, "wb") as out:
+                out.write(content)
+        except OSError as e:
+            logging.warning("Could not save clone audio to %s: %s", save_path, e)
 
     try:
         return await add_voice(name=name, files=file_tuples, user_id=user_id, remove_background_noise= 'false')
@@ -116,7 +136,6 @@ async def speak(request: SpeakRequest):
                 update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso}
                 if play_length is not None:
                     update_payload["play_length"] = play_length
-                print(play_length)
                 supabase.table("Stories").update(update_payload).eq("id", request.story_id).execute()
             finally:
                 try:
