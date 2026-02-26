@@ -72,8 +72,8 @@ class UserUpdateRequest(BaseModel):
     """Body for updating user settings. Only provided fields are updated."""
 
     speed: str | None = Field(None, description="Speed (text)")
-    morningTime_Reminder: bool | None = Field(None, description="Morning reminder time")
-    bedTime_Reminder: bool | None = Field(None, description="Bedtime reminder time")
+    morningTime_Reminder: int | None = Field(None, description="Morning reminder time (Unix timestamp)")
+    bedTime_Reminder: int | None = Field(None, description="Bedtime reminder time (Unix timestamp)")
     is_MorningTime_Reminder: bool | None = Field(None, description="Morning reminder on/off")
     is_BedTime_Reminder: bool | None = Field(None, description="Bedtime reminder on/off")
     name: str | None = Field(None, description="User's name")
@@ -94,9 +94,9 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     if body.speed is not None:
         payload["speed"] = body.speed
     if body.morningTime_Reminder is not None:
-        payload["morningTime_Reminder"] = body.is_morning_reminder
+        payload["morningTime_Reminder"] = body.morningTime_Reminder
     if body.bedTime_Reminder is not None:
-        payload["bedTime_Reminder"] = body.is_bedtime_reminder
+        payload["bedTime_Reminder"] = body.bedTime_Reminder
     if body.is_MorningTime_Reminder is not None:
         payload["is_MorningTime_Reminder"] = body.is_MorningTime_Reminder
     if body.is_BedTime_Reminder is not None:
@@ -115,7 +115,7 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["lovedOne"] = body.lovedOne
   
     if not payload:
-        raise HTTPException(status_code=400, detail="Provide at least one field: speed, is_morning_reminder, is_bedtime_reminder")
+        raise HTTPException(status_code=400, detail="Provide at least one field to update")
 
     supabase = get_supabase()
     try:
