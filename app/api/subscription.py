@@ -249,12 +249,13 @@ async def create_subscription(body: CreateSubscriptionRequest):
 
 @router.get("/status")
 async def subscription_status(user_id: int = Query(..., description="App user id")):
-    """Return only stripe_customer_id, stripe_subscription_id, subscription_status, subscription_plan. Syncs with Stripe on each call."""
+    """Return stripe_customer_id, stripe_subscription_id, intent_id (setup_intent_id), subscription_status, subscription_plan. Syncs with Stripe on each call."""
     supabase = get_supabase()
     r = supabase.table("Users").select(
         "id",
         "stripe_customer_id",
         "stripe_subscription_id",
+        "setup_intent_id",
         "subscription_status",
         "subscription_plan",
     ).eq("id", user_id).execute()
@@ -263,6 +264,7 @@ async def subscription_status(user_id: int = Query(..., description="App user id
         raise HTTPException(status_code=404, detail="User not found")
     row = rows[0]
     subscription_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
+    intent_id = row.get("setup_intent_id")
     status = row.get("subscription_status") or row.get("Subscription_Status")
     plan = row.get("subscription_plan") or row.get("Subscription_Plan")
 
@@ -283,6 +285,7 @@ async def subscription_status(user_id: int = Query(..., description="App user id
     return {
         "stripe_customer_id": row.get("stripe_customer_id") or row.get("stripe_customer_Id"),
         "stripe_subscription_id": subscription_id,
+        "intent_id": intent_id,
         "subscription_status": status,
         "subscription_plan": plan,
     }
