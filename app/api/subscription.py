@@ -259,12 +259,14 @@ async def create_subscription(body: CreateSubscriptionRequest):
                     trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
                     try:
                         supabase.table("Users").update({
+                            "stripe_subscription_id": sub.id,
                             "subscription_status": status,
                             "subscription_plan": plan,
                             "trial_end": trial_end_iso,
                         }).eq("id", body.user_id).execute()
                     except Exception as e:
                         logging.exception("Failed to update Users after plan change: %s", e)
+                        raise HTTPException(status_code=500, detail="Failed to save subscription to database")
                     return {
                         "subscription_id": sub.id,
                         "status": status,
@@ -302,6 +304,7 @@ async def create_subscription(body: CreateSubscriptionRequest):
         }).eq("id", body.user_id).execute()
     except Exception as e:
         logging.exception("Failed to update Users with subscription: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save subscription to database")
 
     return {
         "subscription_id": sub.id,
