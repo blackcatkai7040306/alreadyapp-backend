@@ -58,7 +58,6 @@ class CreateSetupIntentRequest(BaseModel):
 
 @router.post("/setup-intent")
 async def create_setup_intent(body: CreateSetupIntentRequest):
-    print(body.user_id, body.customer_email)
     if not settings.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
 
@@ -101,6 +100,11 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
     except stripe.StripeError as e:
         logging.exception("Stripe SetupIntent.create error: %s", e)
         raise HTTPException(status_code=502, detail="Failed to create SetupIntent")
+
+    try:
+        supabase.table("Users").update({"setup_intent_id": setup_intent.id}).eq("id", body.user_id).execute()
+    except Exception as e:
+        logging.warning("Failed to store setup_intent_id for user %s: %s", body.user_id, e)
 
     return {
         "client_secret": setup_intent.client_secret,
