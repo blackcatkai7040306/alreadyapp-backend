@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,11 +9,21 @@ from app.api.subscription import router as subscription_router
 from app.api.users import router as users_router
 from app.api.voice import router as voice_router
 from app.core.config import settings
+from app.core.reminder_scheduler import start_reminder_scheduler, stop_reminder_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_reminder_scheduler()
+    yield
+    stop_reminder_scheduler()
+
 
 app = FastAPI(
     title="ALREADY API",
     description="Backend for ALREADY — voice cloning and stories.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

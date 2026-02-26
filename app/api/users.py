@@ -30,10 +30,6 @@ def _days_since(date_value) -> int:
 
 @router.get("/{user_id}")
 async def get_user_info(user_id: int):
-    """
-    Get user info with synced subscription, story_count (complete), day_streak (days since signup),
-    and active (number of stories not deleted). Stories table has is_deleted.
-    """
     supabase = get_supabase()
     r = supabase.table("Users").select("*").eq("id", user_id).execute()
     rows = list(r.data or [])
@@ -82,7 +78,9 @@ class UserUpdateRequest(BaseModel):
     location: str | None = Field(None, description="User's location")
     energyWord: str | None = Field(None, description="User's energy word")
     lovedOne: str | None = Field(None, description="User's loved one")
-
+    sleepTime: int | None = Field(None, description="User's sleep time (minutes)")
+    fcm_token: str | None = Field(None, description="FCM device token for push notifications")
+    timezone: str | None = Field(None, description="IANA timezone (e.g. America/Los_Angeles) for reminder times")
 
 @router.patch("/{user_id}")
 async def update_user(user_id: str, body: UserUpdateRequest):
@@ -102,6 +100,8 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["is_MorningTime_Reminder"] = body.is_MorningTime_Reminder
     if body.is_BedTime_Reminder is not None:
         payload["is_BedTime_Reminder"] = body.is_BedTime_Reminder
+    if body.sleepTime is not None:
+        payload["sleepTime"] = body.sleepTime
     if body.name is not None:
         payload["name"] = body.name
     if body.email is not None:
@@ -114,7 +114,11 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["energyWord"] = body.energyWord
     if body.lovedOne is not None:
         payload["lovedOne"] = body.lovedOne
-  
+    if body.fcm_token is not None:
+        payload["fcm_token"] = body.fcm_token
+    if body.timezone is not None:
+        payload["timezone"] = body.timezone
+
     if not payload:
         raise HTTPException(status_code=400, detail="Provide at least one field to update")
 

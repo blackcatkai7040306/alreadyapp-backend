@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     STRIPE_TRIAL_DAYS: int = 7
     # Optional override. If empty, app uses client SYSTEM_PROMPT from story_prompts (first-person past tense, 3rd grade vocab).
     STORY_SYSTEM_PROMPT: str = ""
+    # FCM: path to Firebase service account JSON (for reminder push notifications). Empty = reminders not sent.
+    FIREBASE_CREDENTIALS_PATH: str = ""
 
     
 
