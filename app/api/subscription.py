@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, Field, model_validator
 
@@ -114,6 +115,10 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
 class CreateSubscriptionRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
     plan: str = Field(..., description="annual or weekly")
+    create_type: Literal["firstcreate", "changeplan"] = Field(
+        "firstcreate",
+        description="firstcreate = new subscription; changeplan = cancel current subscription and create new with new plan",
+    )
     payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from SDK")
     setup_intent_id: str | None = Field(None, description="Or pass setup_intent_id after Payment Sheet completes; backend will resolve to payment_method_id")
     customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
@@ -166,12 +171,24 @@ async def create_subscription(body: CreateSubscriptionRequest):
         raise HTTPException(status_code=400, detail="payment_method_id or setup_intent_id required")
 
     # 1) Get or create Stripe customer for this user
-    r = supabase.table("Users").select("stripe_customer_id").eq("id", body.user_id).execute()
+    r = supabase.table("Users").select("stripe_customer_id", "stripe_subscription_id").eq("id", body.user_id).execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
     row = rows[0]
     customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
+    current_subscription_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
+
+    # If changeplan: cancel current subscription before creating new one
+    if body.create_type == "changeplan" and current_subscription_id:
+        try:
+            stripe.Subscription.delete(str(current_subscription_id))
+        except stripe.StripeError as e:
+            if e.code == "resource_missing" or "No such subscription" in (e.user_message or ""):
+                pass  # already canceled or deleted
+            else:
+                logging.exception("Stripe Subscription.delete error: %s", e)
+                raise HTTPException(status_code=502, detail="Failed to cancel current subscription")
 
     if not customer_id:
         if not body.customer_email or not body.customer_email.strip():
