@@ -51,18 +51,6 @@ def _fetch_subscription_from_stripe(subscription_id: str) -> dict | None:
     plan = _plan_from_price_id(price_id) if price_id else "unknown"
     return {"status": status, "plan": plan, "trial_end": trial_end_iso}
 
-
-def _retrieve_subscription_for_update(subscription_id: str):
-    """Retrieve subscription from Stripe; return subscription object or None. Used for plan change."""
-    if not settings.STRIPE_SECRET_KEY:
-        return None
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-    try:
-        return stripe.Subscription.retrieve(subscription_id)
-    except stripe.StripeError as e:
-        logging.warning("Stripe Subscription.retrieve %s: %s", subscription_id, e)
-        return None
-
 class CreateSetupIntentRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
     customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
@@ -177,14 +165,13 @@ async def create_subscription(body: CreateSubscriptionRequest):
     if not payment_method_id:
         raise HTTPException(status_code=400, detail="payment_method_id or setup_intent_id required")
 
-    # 1) Get or create Stripe customer for this user (and check for existing subscription)
-    r = supabase.table("Users").select("stripe_customer_id", "stripe_subscription_id").eq("id", body.user_id).execute()
+    # 1) Get or create Stripe customer for this user
+    r = supabase.table("Users").select("stripe_customer_id").eq("id", body.user_id).execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
     row = rows[0]
     customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
-    existing_sub_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
 
     if not customer_id:
         if not body.customer_email or not body.customer_email.strip():
@@ -223,59 +210,7 @@ async def create_subscription(body: CreateSubscriptionRequest):
         logging.exception("Stripe Customer.modify error: %s", e)
         raise HTTPException(status_code=502, detail="Failed to set default payment method")
 
-    # 3) If user already has an active/trialing subscription, change plan or return same-plan error
-    if existing_sub_id:
-        sub_obj = _retrieve_subscription_for_update(str(existing_sub_id))
-        if sub_obj:
-            status_lower = (getattr(sub_obj, "status", None) or sub_obj.get("status") or "").lower()
-            if status_lower in ("active", "trialing"):
-                items_data = (sub_obj.get("items") or {}).get("data") or []
-                current_price_id = (items_data[0].get("price") or {}).get("id") if items_data else None
-                current_plan = _plan_from_price_id(current_price_id) if current_price_id else "unknown"
-                if current_plan == body.plan:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Already on the {body.plan!r} plan. No change needed.",
-                    )
-                # Change plan: update subscription item to new price
-                subscription_item_id = items_data[0].get("id") if items_data else None
-                if not subscription_item_id:
-                    logging.warning("Existing subscription has no item id: %s", existing_sub_id)
-                else:
-                    try:
-                        sub = stripe.Subscription.modify(
-                            existing_sub_id,
-                            items=[{"id": subscription_item_id, "price": price_id}],
-                            proration_behavior="create_prorations",
-                        )
-                    except stripe.StripeError as e:
-                        logging.exception("Stripe Subscription.modify error: %s", e)
-                        raise HTTPException(status_code=502, detail="Failed to change plan")
-                    items_after = (sub.get("items") or {}).get("data") or []
-                    price_id_used = (items_after[0].get("price") or {}).get("id") if items_after else None
-                    plan = _plan_from_price_id(price_id_used) if price_id_used else body.plan
-                    status = (sub.get("status") or "active").lower()
-                    trial_end_ts = sub.get("trial_end")
-                    trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
-                    try:
-                        supabase.table("Users").update({
-                            "stripe_subscription_id": sub.id,
-                            "subscription_status": status,
-                            "subscription_plan": plan,
-                            "trial_end": trial_end_iso,
-                        }).eq("id", body.user_id).execute()
-                    except Exception as e:
-                        logging.exception("Failed to update Users after plan change: %s", e)
-                        raise HTTPException(status_code=500, detail="Failed to save subscription to database")
-                    return {
-                        "subscription_id": sub.id,
-                        "status": status,
-                        "plan": plan,
-                        "trial_end": trial_end_iso,
-                        "changed_plan": True,
-                    }
-
-    # 4) Create new subscription with trial
+    # 3) Create subscription with trial
     try:
         sub = stripe.Subscription.create(
             customer=customer_id,
@@ -288,7 +223,7 @@ async def create_subscription(body: CreateSubscriptionRequest):
         logging.exception("Stripe Subscription.create error: %s", e)
         raise HTTPException(status_code=502, detail="Failed to create subscription")
 
-    # 5) Update Users with subscription info (webhook will also keep it in sync)
+    # 4) Update Users with subscription info (webhook will also keep it in sync)
     items = (sub.get("items") or {}).get("data") or []
     price_id_used = (items[0].get("price") or {}).get("id") if items else None
     plan = _plan_from_price_id(price_id_used)
@@ -304,7 +239,6 @@ async def create_subscription(body: CreateSubscriptionRequest):
         }).eq("id", body.user_id).execute()
     except Exception as e:
         logging.exception("Failed to update Users with subscription: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to save subscription to database")
 
     return {
         "subscription_id": sub.id,
