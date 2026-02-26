@@ -72,8 +72,8 @@ class UserUpdateRequest(BaseModel):
     """Body for updating user settings. Only provided fields are updated."""
 
     speed: str | None = Field(None, description="Speed (text)")
-    morningTime_Reminder: int | None = Field(None, description="Morning reminder time (Unix timestamp)")
-    bedTime_Reminder: int | None = Field(None, description="Bedtime reminder time (Unix timestamp)")
+    morningTime_Reminder: datetime | None = Field(None, description="Morning reminder time (ISO datetime)")
+    bedTime_Reminder: datetime | None = Field(None, description="Bedtime reminder time (ISO datetime)")
     is_MorningTime_Reminder: bool | None = Field(None, description="Morning reminder on/off")
     is_BedTime_Reminder: bool | None = Field(None, description="Bedtime reminder on/off")
     name: str | None = Field(None, description="User's name")
@@ -94,9 +94,10 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     if body.speed is not None:
         payload["speed"] = body.speed
     if body.morningTime_Reminder is not None:
-        payload["morningTime_Reminder"] = body.morningTime_Reminder
+        # Supabase column is timestamp (no tz); send naive "YYYY-MM-DD HH:MM:SS"
+        payload["morningTime_Reminder"] = body.morningTime_Reminder.strftime("%Y-%m-%d %H:%M:%S")
     if body.bedTime_Reminder is not None:
-        payload["bedTime_Reminder"] = body.bedTime_Reminder
+        payload["bedTime_Reminder"] = body.bedTime_Reminder.strftime("%Y-%m-%d %H:%M:%S")
     if body.is_MorningTime_Reminder is not None:
         payload["is_MorningTime_Reminder"] = body.is_MorningTime_Reminder
     if body.is_BedTime_Reminder is not None:
