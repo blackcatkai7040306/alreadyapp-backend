@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 import stripe
 from app.core.config import settings
@@ -114,19 +114,8 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
 class CreateSubscriptionRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
     plan: str = Field(..., description="annual or weekly")
-    payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from SDK")
-    setup_intent_id: str | None = Field(None, description="Or pass setup_intent_id after Payment Sheet completes; backend will resolve to payment_method_id")
+    payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from Payment Sheet / SDK. Omit if customer already has a saved card.")
     customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
-    
-    @model_validator(mode="after")
-    def require_payment_method_or_setup_intent(self):
-        pm = (self.payment_method_id or "").strip()
-        si = (self.setup_intent_id or "").strip()
-        if not pm and not si:
-            raise ValueError("Provide either payment_method_id or setup_intent_id")
-        if pm and si:
-            raise ValueError("Provide only one of payment_method_id or setup_intent_id")
-        return self
 
 
 @router.post("/create")
@@ -143,36 +132,33 @@ async def create_subscription(body: CreateSubscriptionRequest):
     stripe.api_key = settings.STRIPE_SECRET_KEY
     supabase = get_supabase()
 
-    payment_method_id: str = (body.payment_method_id or "").strip()
-    if body.setup_intent_id:
-        try:
-            si = stripe.SetupIntent.retrieve(body.setup_intent_id.strip())
-        except stripe.StripeError as e:
-            logging.exception("Stripe SetupIntent.retrieve error: %s", e)
-            raise HTTPException(status_code=400, detail="Invalid or expired setup_intent_id")
-        if si.status != "succeeded":
-            raise HTTPException(
-                status_code=400,
-                detail=f"SetupIntent not completed (status={si.status}). User must complete the Payment Sheet first.",
-            )
-        payment_method_id = si.payment_method
-        if not payment_method_id:
-            raise HTTPException(status_code=400, detail="SetupIntent has no payment method")
-        if isinstance(payment_method_id, str):
-            pass
-        else:
-            payment_method_id = getattr(payment_method_id, "id", None) or str(payment_method_id)
-    if not payment_method_id:
-        raise HTTPException(status_code=400, detail="payment_method_id or setup_intent_id required")
-
-    # 1) Get or create Stripe customer for this user
-    r = supabase.table("Users").select("stripe_customer_id").eq("id", body.user_id).execute()
+    # 1) Load user: stripe_customer_id, stripe_subscription_id
+    r = supabase.table("Users").select("stripe_customer_id", "stripe_subscription_id").eq("id", body.user_id).execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="User not found")
     row = rows[0]
     customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
+    existing_subscription_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
 
+    # 2) Resolve payment_method_id: from body or existing customer default (original saved card)
+    payment_method_id: str | None = (body.payment_method_id or "").strip() or None
+    if not payment_method_id and customer_id:
+        try:
+            customer = stripe.Customer.retrieve(customer_id, expand=["invoice_settings.default_payment_method"])
+            inv = getattr(customer, "invoice_settings", None)
+            default_pm = getattr(inv, "default_payment_method", None) if inv else None
+            if default_pm:
+                payment_method_id = default_pm if isinstance(default_pm, str) else (getattr(default_pm, "id", None) or str(default_pm))
+        except stripe.StripeError as e:
+            logging.warning("Stripe Customer.retrieve for default payment method: %s", e)
+    if not payment_method_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide payment_method_id from Payment Sheet, or complete payment setup first so we can use your saved card.",
+        )
+
+    # 3) Get or create Stripe customer
     if not customer_id:
         if not body.customer_email or not body.customer_email.strip():
             raise HTTPException(
@@ -192,12 +178,20 @@ async def create_subscription(body: CreateSubscriptionRequest):
     else:
         customer_id = str(customer_id)
 
-    # 2) Attach payment method to customer (if not already) and set as default
+    # 4) If user already has a subscription, delete it; then create new one with customer_id, original payment method, and requested plan
+    if existing_subscription_id:
+        try:
+            stripe.Subscription.delete(existing_subscription_id)
+        except stripe.StripeError as e:
+            logging.warning("Stripe Subscription.delete %s: %s", existing_subscription_id, e)
+        # New subscription is created below using customer_id, payment_method_id (original or from body), and plan
+
+    # 5) Attach payment method to customer if not already and set as default
     try:
         stripe.PaymentMethod.attach(payment_method_id, customer=customer_id)
     except stripe.StripeError as e:
         if "already been attached" in (e.user_message or "") or "already attached" in str(e).lower():
-            pass  # SetupIntent confirmation already attached it
+            pass
         else:
             logging.exception("Stripe PaymentMethod.attach error: %s", e)
             raise HTTPException(status_code=502, detail="Failed to attach payment method")
@@ -210,7 +204,7 @@ async def create_subscription(body: CreateSubscriptionRequest):
         logging.exception("Stripe Customer.modify error: %s", e)
         raise HTTPException(status_code=502, detail="Failed to set default payment method")
 
-    # 3) Create subscription with trial
+    # 6) Create new subscription with trial
     try:
         sub = stripe.Subscription.create(
             customer=customer_id,
@@ -223,7 +217,7 @@ async def create_subscription(body: CreateSubscriptionRequest):
         logging.exception("Stripe Subscription.create error: %s", e)
         raise HTTPException(status_code=502, detail="Failed to create subscription")
 
-    # 4) Update Users with subscription info (webhook will also keep it in sync)
+    # 7) Update Users with new subscription info
     items = (sub.get("items") or {}).get("data") or []
     price_id_used = (items[0].get("price") or {}).get("id") if items else None
     plan = _plan_from_price_id(price_id_used)
