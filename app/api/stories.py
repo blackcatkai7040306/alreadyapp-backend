@@ -73,13 +73,17 @@ def _get_desire_id_by_name(supabase, category: str) -> int:
 
 
 def _user_has_subscription(supabase, user_id: int) -> bool:
-    """True if user has stripe_subscription_id (considered subscribed)."""
-    r = supabase.table("Users").select("stripe_subscription_id").eq("id", user_id).execute()
+    """True if user has an active paid subscription (subscription_status=active). Trial users get only 1 story/day."""
+    r = supabase.table("Users").select("stripe_subscription_id", "subscription_status").eq("id", user_id).execute()
     rows = list(r.data or [])
     if not rows:
         return False
-    sub_id = rows[0].get("stripe_subscription_id") or rows[0].get("stripe_subscription_Id")
-    return bool(sub_id and str(sub_id).strip())
+    row = rows[0]
+    sub_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
+    if not sub_id or not str(sub_id).strip():
+        return False
+    status = (row.get("subscription_status") or row.get("Subscription_Status") or "").strip().lower()
+    return status == "active"
 
 
 def _count_stories_generated_today(supabase, user_id: int) -> int:
@@ -103,7 +107,7 @@ async def generate_story_content(body: GenerateStoryRequest):
 
     supabase = get_supabase()
 
-    # Non-subscribers: max 1 story per day
+    # Non-subscribers and trial users: max 1 story per day; only active weekly/annual get more
     if not _user_has_subscription(supabase, user_id):
         today_count = _count_stories_generated_today(supabase, user_id)
         if today_count >= 1:
