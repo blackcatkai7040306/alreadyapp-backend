@@ -1,5 +1,7 @@
 """Stories endpoint: list stories for a user; generate story theme and story via Claude."""
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
@@ -39,7 +41,6 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
     # Use service_role key in .env so RLS doesn't return empty; tables are Stories, Desires
     r = supabase.table("Stories").select("*").eq("user_id", uid).execute()
     rows = list(r.data or [])
-    print(rows)
     if not rows:
         return {"stories": []}
 
@@ -71,6 +72,24 @@ def _get_desire_id_by_name(supabase, category: str) -> int:
     return int(desire_id)
 
 
+def _user_has_subscription(supabase, user_id: int) -> bool:
+    """True if user has stripe_subscription_id (considered subscribed)."""
+    r = supabase.table("Users").select("stripe_subscription_id").eq("id", user_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        return False
+    sub_id = rows[0].get("stripe_subscription_id") or rows[0].get("stripe_subscription_Id")
+    return bool(sub_id and str(sub_id).strip())
+
+
+def _count_stories_generated_today(supabase, user_id: int) -> int:
+    """Count stories created today (UTC) by this user."""
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_iso = today_start.isoformat()
+    r = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_iso).execute()
+    return getattr(r, "count", None) if getattr(r, "count", None) is not None else len(r.data or [])
+
+
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
     # Match variable names to GenerateStoryRequest field names (self.user_id, self.name, ...)
@@ -83,6 +102,16 @@ async def generate_story_content(body: GenerateStoryRequest):
     lovedOne = body.lovedOne
 
     supabase = get_supabase()
+
+    # Non-subscribers: max 1 story per day
+    if not _user_has_subscription(supabase, user_id):
+        today_count = _count_stories_generated_today(supabase, user_id)
+        if today_count >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail="Non-subscribers can generate only 1 story per day. Subscribe to create more.",
+            )
+
     desire_id = _get_desire_id_by_name(supabase, desireCategory)
     r = supabase.table("Stories").select("id", "theme", count="exact").eq("user_id", user_id).eq("desire_id", desire_id).order("id").execute()
     rows = list(r.data or [])
@@ -93,7 +122,6 @@ async def generate_story_content(body: GenerateStoryRequest):
         for s in rows
         if (s.get("theme") or "").strip()
     ]
-    print(previous_story_themes, story_count)
     try:
         theme, story = await generate_story(
             name=name,
