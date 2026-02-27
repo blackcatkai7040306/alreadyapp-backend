@@ -114,7 +114,8 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
 class CreateSubscriptionRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
     plan: str = Field(..., description="annual or weekly")
-    payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from Payment Sheet / SDK. Omit if customer already has a saved card.")
+    payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from Payment Sheet. Omit if passing setup_intent_id.")
+    setup_intent_id: str | None = Field(None, description="SetupIntent id (seti_xxx) after Payment Sheet confirmation. Used to resolve payment_method when payment_method_id not sent.")
     customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
 
 
@@ -141,8 +142,17 @@ async def create_subscription(body: CreateSubscriptionRequest):
     customer_id = row.get("stripe_customer_id") or row.get("stripe_customer_Id")
     existing_subscription_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
 
-    # 2) Resolve payment_method_id: from body or existing customer default (original saved card)
+    # 2) Resolve payment_method_id: from body, from SetupIntent after Payment Sheet, or existing customer default
     payment_method_id: str | None = (body.payment_method_id or "").strip() or None
+    if not payment_method_id and (body.setup_intent_id or "").strip():
+        # Frontend sends setup_intent_id after Payment Sheet confirmation; resolve pm from SetupIntent
+        try:
+            si = stripe.SetupIntent.retrieve((body.setup_intent_id or "").strip())
+            pm = getattr(si, "payment_method", None) or (si.get("payment_method") if isinstance(si, dict) else None)
+            if pm:
+                payment_method_id = pm if isinstance(pm, str) else (getattr(pm, "id", None) or str(pm))
+        except stripe.StripeError as e:
+            logging.warning("Stripe SetupIntent.retrieve %s: %s", body.setup_intent_id, e)
     if not payment_method_id and customer_id:
         try:
             customer = stripe.Customer.retrieve(customer_id, expand=["invoice_settings.default_payment_method"])
