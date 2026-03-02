@@ -72,28 +72,6 @@ def _get_desire_id_by_name(supabase, category: str) -> int:
     return int(desire_id)
 
 
-def _user_has_subscription(supabase, user_id: int) -> bool:
-    """True if user has an active paid subscription (subscription_status=active). Trial users get only 1 story/day."""
-    r = supabase.table("Users").select("stripe_subscription_id", "subscription_status").eq("id", user_id).execute()
-    rows = list(r.data or [])
-    if not rows:
-        return False
-    row = rows[0]
-    sub_id = row.get("stripe_subscription_id") or row.get("stripe_subscription_Id")
-    if not sub_id or not str(sub_id).strip():
-        return False
-    status = (row.get("subscription_status") or row.get("Subscription_Status") or "").strip().lower()
-    return status == "active"
-
-
-def _count_stories_generated_today(supabase, user_id: int) -> int:
-    """Count stories created today (UTC) by this user."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_iso = today_start.isoformat()
-    r = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_iso).execute()
-    return getattr(r, "count", None) if getattr(r, "count", None) is not None else len(r.data or [])
-
-
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
     # Match variable names to GenerateStoryRequest field names (self.user_id, self.name, ...)
@@ -107,13 +85,22 @@ async def generate_story_content(body: GenerateStoryRequest):
 
     supabase = get_supabase()
 
-    # Non-subscribers and trial users: max 1 story per day; only active weekly/annual get more
-    if not _user_has_subscription(supabase, user_id):
-        today_count = _count_stories_generated_today(supabase, user_id)
-        if today_count >= 1:
+    # Non-subscribers: limit to 1 story per day (UTC). Weekly/annual (trialing or active) get unlimited.
+    user_row = supabase.table("Users").select("subscription_plan", "subscription_status").eq("id", user_id).execute()
+    user_data = (user_row.data or [])
+    plan = (user_data[0].get("subscription_plan") or user_data[0].get("Subscription_Plan") or "").lower() if user_data else ""
+    status = (user_data[0].get("subscription_status") or user_data[0].get("Subscription_Status") or "").lower() if user_data else ""
+    is_subscribed = plan in ("weekly", "annual") and status in ("trialing", "active")
+    if not is_subscribed:
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
+        r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).execute()
+        count_today = getattr(r_today, "count", None)
+        if count_today is None:
+            count_today = len(r_today.data or []) if r_today.data is not None else 0
+        if (count_today or 0) >= 1:
             raise HTTPException(
                 status_code=403,
-                detail="Non-subscribers can generate only 1 story per day. Subscribe to create more.",
+                detail="Free users can generate up to 1 story per day. Subscribe to weekly or annual for unlimited stories.",
             )
 
     desire_id = _get_desire_id_by_name(supabase, desireCategory)
