@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -9,6 +9,55 @@ from app.api.subscription import _fetch_subscription_from_stripe
 from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _parse_date(value) -> date | None:
+    """Parse ISO string or timestamp to UTC date. Return None if missing/invalid."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        elif isinstance(value, (int, float)):
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+        else:
+            return None
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_streak_days(supabase, user_id: int) -> int:
+    """
+    Return current streak: consecutive calendar days (UTC) with at least one story played.
+    Uses Stories.last_played; excludes soft-deleted stories.
+    """
+    r = supabase.table("Stories").select("last_played", "is_deleted").eq("user_id", user_id).execute()
+    rows = r.data or []
+    active_dates: set[date] = set()
+    for row in rows:
+        if row.get("is_deleted") is True:
+            continue
+        d = _parse_date(row.get("last_played") or row.get("lastPlayed"))
+        if d is not None:
+            active_dates.add(d)
+    if not active_dates:
+        return 0
+    today = datetime.now(timezone.utc).date()
+    # Start from today if active, else yesterday (streak can include "yesterday" if not played today yet)
+    start = today if today in active_dates else (today - timedelta(days=1)) if (today - timedelta(days=1)) in active_dates else None
+    if start is None:
+        return 0
+    streak = 0
+    d = start
+    while d in active_dates:
+        streak += 1
+        d -= timedelta(days=1)
+    return streak
 
 
 def _days_since(date_value) -> int:
@@ -59,7 +108,7 @@ async def get_user_info(user_id: int):
     active = sum(1 for s in stories if not (s.get("is_deleted")))
     user["story_count"] = story_count
     user["complete"] = story_count
-    user["day_streak"] = _days_since(user.get("created_at"))
+    user["day_streak"] = _get_streak_days(supabase, user_id)
     user["active"] = active
     return user
 
@@ -128,4 +177,9 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Supabase error: {e}")
 
-    return {"updated": True, "data": r.data}
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        uid = None
+    day_streak = _get_streak_days(supabase, uid) if uid is not None else 0
+    return {"updated": True, "data": r.data, "day_streak": day_streak}
