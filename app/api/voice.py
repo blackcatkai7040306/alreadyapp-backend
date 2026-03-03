@@ -117,8 +117,8 @@ async def get_story_play_url(story_id: int):
 
 @router.post("/generate_audio")
 async def speak(request: SpeakRequest):
-    print(request)
     """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
+    now_iso = datetime.now(timezone.utc).isoformat()
     supabase = get_supabase()
     r = supabase.table("Stories").select("story").eq("id", request.story_id).execute()
     rows = r.data or []
