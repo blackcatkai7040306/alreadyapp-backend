@@ -29,10 +29,13 @@ def _ensure_fcm():
 
 
 def send_push(token: str, title: str, body: str) -> bool:
+    print("Sending push notification to token %s", token)
     """Send a push notification to one FCM token. Returns True if sent successfully."""
     if not token or not token.strip():
+        print("FCM send failed for token %s...: %s", token[:20] if token else "", "No token provided")
         return False
     if not _ensure_fcm():
+        print("FCM send failed for token %s...: %s", token[:20] if token else "", "FCM not initialized")
         return False
     try:
         from firebase_admin import messaging
@@ -42,7 +45,9 @@ def send_push(token: str, title: str, body: str) -> bool:
             token=token.strip(),
         )
         messaging.send(message)
+        print("FCM send successful for token %s", token)
         return True
     except Exception as e:
+        print("FCM send failed for token %s...: %s", token[:20] if token else "", e)
         logging.warning("FCM send failed for token %s...: %s", token[:20] if token else "", e)
         return False
