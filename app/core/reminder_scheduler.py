@@ -22,6 +22,15 @@ BEDTIME_TITLE = "Time to reflect"
 BEDTIME_BODY = "Evening reflection prompt."
 
 
+def _row_get(row: dict, *keys: str):
+    """Return first non-None value from row for the given keys (handles Supabase column name variants)."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
 def _parse_hour_minute(value) -> tuple[int, int] | None:
     """Parse stored timestamp or time string to (hour, minute). Returns None if invalid."""
     if value is None:
@@ -75,12 +84,12 @@ def _check_and_send_reminders():
         token = (row.get("fcm_token") or "").strip()
         if not token:
             continue
-        current_hour, current_minute = _get_user_now(now_utc, row.get("timezone"))
-        morning_on = row.get("is_MorningTime_Reminder") in (True, "true")
-        bedtime_on = row.get("is_BedTime_Reminder") in (True, "true")
-        morning_hm = _parse_hour_minute(row.get("morningTime_Reminder"))
-        bedtime_hm = _parse_hour_minute(row.get("bedTime_Reminder"))
-
+        timezone_val = _row_get(row, "timezone", "Timezone")
+        current_hour, current_minute = _get_user_now(now_utc, timezone_val)
+        morning_on = _row_get(row, "is_MorningTime_Reminder", "is_morningtime_reminder", "is_morning_time_reminder") in (True, "true")
+        bedtime_on = _row_get(row, "is_BedTime_Reminder", "is_bedtime_reminder", "is_bed_time_reminder") in (True, "true")
+        morning_hm = _parse_hour_minute(_row_get(row, "morningTime_Reminder", "morningtime_reminder", "morning_time_reminder"))
+        bedtime_hm = _parse_hour_minute(_row_get(row, "bedTime_Reminder", "bedtime_reminder", "bed_time_reminder"))
         if morning_on and morning_hm and morning_hm == (current_hour, current_minute):
             if send_push(token, MORNING_TITLE, MORNING_BODY):
                 logging.info("Sent morning reminder to user %s", row.get("id"))
