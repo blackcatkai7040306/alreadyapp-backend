@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import httpx
 from mutagen import File as MutagenFile
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -69,6 +70,25 @@ async def clone_voice(
         return await add_voice(name=name, files=file_tuples, user_id=user_id, remove_background_noise= 'false')
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
+
+
+# Default sentence used to generate a voice preview from ElevenLabs
+VOICE_PREVIEW_TEXT = "Hello, how are you?"
+
+
+@router.get("/preview")
+async def voice_preview(voice_id: str = Query(..., min_length=1, description="ElevenLabs voice_id")):
+    """Generate and return a short audio preview for the given ElevenLabs voice_id."""
+    try:
+        audio_bytes, content_type = await text_to_speech(
+            voice_id=voice_id,
+            text=VOICE_PREVIEW_TEXT,
+            model_id="eleven_multilingual_v2",
+            speed=1.0,
+        )
+    except (httpx.HTTPStatusError, httpx.RequestError) as e:
+        _raise_http_from_httpx(e)
+    return Response(content=audio_bytes, media_type=content_type)
 
 
 class SpeakRequest(BaseModel):
