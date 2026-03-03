@@ -55,7 +55,6 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
     return {"stories": rows}
 
-
 def _get_desire_id_by_name(supabase, category: str) -> int:
     """Look up Desires.id by Desires.desireCategory. Raises if not found."""
     r = supabase.table("Desires").select("id").eq("desireCategory", category).execute()

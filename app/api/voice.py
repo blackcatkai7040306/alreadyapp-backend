@@ -100,20 +100,34 @@ class SpeakRequest(BaseModel):
         description="Slow (0.85x), Normal (1.0x), Very Fast (1.15x), Fast (1.2x); ElevenLabs max 1.2x",
     )
 
+@router.get("/speak/{story_id}")
+async def get_story_play_url(story_id: int):
+    """Return the playUrl for the given story_id. 404 if story not found or playUrl not set."""
+    supabase = get_supabase()
+    r = supabase.table("Stories").select("playUrl").eq("id", story_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Story not found")
+    row = rows[0]
+    play_url = (row.get("playUrl")).strip()
+    if not play_url:
+        raise HTTPException(status_code=404, detail="Story has no play URL yet")
+    return {"playUrl": play_url}
 
-@router.post("/speak")
+
+@router.post("/generate_audio")
 async def speak(request: SpeakRequest):
     print(request)
     """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("story, playUrl").eq("id", request.story_id).execute()
+    r = supabase.table("Stories").select("story").eq("id", request.story_id).execute()
     rows = r.data or []
     row = rows[0] if rows else {}
-    play_url = (row.get("playUrl") or row.get("playurl") or "").strip()
-    now_iso = datetime.now(timezone.utc).isoformat()
-    if play_url:
-        supabase.table("Stories").update({"last_played": now_iso}).eq("id", request.story_id).execute()
-        return {"url": play_url, "content_type": "audio/mpeg"}
+    # play_url = (row.get("playUrl") or row.get("playurl") or "").strip()
+    # now_iso = datetime.now(timezone.utc).isoformat()
+    # if play_url:
+    #     supabase.table("Stories").update({"last_played": now_iso}).eq("id", request.story_id).execute()
+    #     return {"url": play_url, "content_type": "audio/mpeg"}
 
     text = (row.get("story") or row.get("Story") or "").strip()
     if not text:
