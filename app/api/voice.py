@@ -83,6 +83,7 @@ class SpeakRequest(BaseModel):
 
 @router.post("/speak")
 async def speak(request: SpeakRequest):
+    print(request)
     """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
     supabase = get_supabase()
     r = supabase.table("Stories").select("story, playUrl").eq("id", request.story_id).execute()
