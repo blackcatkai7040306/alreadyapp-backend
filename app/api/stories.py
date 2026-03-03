@@ -55,6 +55,30 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
 
     return {"stories": rows}
 
+
+@router.delete("/{story_id}")
+async def delete_story(
+    story_id: int,
+    user_id: int | None = Query(None, description="Optional: verify the story belongs to this user"),
+):
+    """Soft-delete a story by id (sets is_deleted). Optionally pass user_id to ensure ownership."""
+    supabase = get_supabase()
+    r = supabase.table("Stories").select("id", "user_id").eq("id", story_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="Story not found")
+    row = rows[0]
+    if user_id is not None:
+        story_user_id = row.get("user_id") or row.get("userId")
+        if story_user_id != user_id:
+            raise HTTPException(status_code=403, detail="Story does not belong to this user")
+    try:
+        supabase.table("Stories").update({"is_deleted": True}).eq("id", story_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to delete story: {e!s}")
+    return {"ok": True, "story_id": story_id}
+
+
 def _get_desire_id_by_name(supabase, category: str) -> int:
     """Look up Desires.id by Desires.desireCategory. Raises if not found."""
     r = supabase.table("Desires").select("id").eq("desireCategory", category).execute()

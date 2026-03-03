@@ -123,12 +123,6 @@ async def speak(request: SpeakRequest):
     r = supabase.table("Stories").select("story").eq("id", request.story_id).execute()
     rows = r.data or []
     row = rows[0] if rows else {}
-    # play_url = (row.get("playUrl") or row.get("playurl") or "").strip()
-    # now_iso = datetime.now(timezone.utc).isoformat()
-    # if play_url:
-    #     supabase.table("Stories").update({"last_played": now_iso}).eq("id", request.story_id).execute()
-    #     return {"url": play_url, "content_type": "audio/mpeg"}
-
     text = (row.get("story") or row.get("Story") or "").strip()
     if not text:
         raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no story text")
