@@ -162,7 +162,7 @@ async def speak(request: SpeakRequest):
                     file_options={"contentType": str(content_type), "upsert": "true"},
                 )
                 public_url = supabase.storage.from_(bucket).get_public_url(path)
-                update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso}
+                update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso, "voice_id": request.voice_id}
                 if play_length is not None:
                     update_payload["play_length"] = play_length
                 supabase.table("Stories").update(update_payload).eq("id", request.story_id).execute()
