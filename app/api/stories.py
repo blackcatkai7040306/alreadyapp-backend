@@ -39,7 +39,7 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
         raise HTTPException(status_code=400, detail="user_id must be an integer")
 
     # Use service_role key in .env so RLS doesn't return empty; only non-deleted stories (is_deleted = false or null)
-    r = supabase.table("Stories").select("*").eq("user_id", uid).or_("is_deleted.eq.false").execute()
+    r = supabase.table("Stories").select("*").eq("user_id", uid).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     rows = list(r.data or [])
     if not rows:
         return {"stories": []}
@@ -63,7 +63,7 @@ async def delete_story(
 ):
     """Soft-delete a story by id (sets is_deleted). Optionally pass user_id to ensure ownership."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("id", "user_id").eq("id", story_id).execute()
+    r = supabase.table("Stories").select("id", "user_id").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="Story not found")
@@ -116,7 +116,7 @@ async def generate_story_content(body: GenerateStoryRequest):
     is_subscribed = plan in ("weekly", "annual") and status in ("trialing", "active")
     if not is_subscribed:
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
-        r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).execute()
+        r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).or_("is_deleted.eq.false,is_deleted.is.null").execute()
         count_today = getattr(r_today, "count", None)
         if count_today is None:
             count_today = len(r_today.data or []) if r_today.data is not None else 0
@@ -127,7 +127,7 @@ async def generate_story_content(body: GenerateStoryRequest):
             )
 
     desire_id = _get_desire_id_by_name(supabase, desireCategory)
-    r = supabase.table("Stories").select("id", "theme", count="exact").eq("user_id", user_id).eq("desire_id", desire_id).order("id").execute()
+    r = supabase.table("Stories").select("id", "theme", count="exact").eq("user_id", user_id).eq("desire_id", desire_id).or_("is_deleted.eq.false,is_deleted.is.null").order("id").execute()
     rows = list(r.data or [])
     existing_count = r.count if getattr(r, "count", None) is not None else len(rows)
     story_count = existing_count + 1

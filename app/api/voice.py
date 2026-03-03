@@ -104,7 +104,7 @@ class SpeakRequest(BaseModel):
 async def get_story_play_url(story_id: int):
     """Return the playUrl for the given story_id. 404 if story not found or playUrl not set."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("playUrl").eq("id", story_id).execute()
+    r = supabase.table("Stories").select("playUrl").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="Story not found")
@@ -120,7 +120,7 @@ async def speak(request: SpeakRequest):
     """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
     now_iso = datetime.now(timezone.utc).isoformat()
     supabase = get_supabase()
-    r = supabase.table("Stories").select("story").eq("id", request.story_id).execute()
+    r = supabase.table("Stories").select("story").eq("id", request.story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     rows = r.data or []
     row = rows[0] if rows else {}
     text = (row.get("story") or row.get("Story") or "").strip()

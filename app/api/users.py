@@ -40,8 +40,6 @@ def _get_streak_days(supabase, user_id: int) -> int:
     rows = r.data or []
     active_dates: set[date] = set()
     for row in rows:
-        if row.get("is_deleted") is True:
-            continue
         d = _parse_date(row.get("last_played") or row.get("lastPlayed"))
         if d is not None:
             active_dates.add(d)
@@ -105,7 +103,7 @@ async def get_user_info(user_id: int):
     sr = supabase.table("Stories").select("id, is_deleted").eq("user_id", user_id).execute()
     stories = sr.data or []
     story_count = len(stories)
-    active = sum(1 for s in stories if not (s.get("is_deleted")))
+    active = len(stories)
     user["story_count"] = story_count
     user["complete"] = story_count
     user["day_streak"] = _get_streak_days(supabase, user_id)
