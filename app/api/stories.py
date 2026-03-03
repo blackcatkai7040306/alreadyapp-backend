@@ -38,8 +38,8 @@ async def get_stories(user_id: str = Query(..., description="Filter stories by t
     except ValueError:
         raise HTTPException(status_code=400, detail="user_id must be an integer")
 
-    # Use service_role key in .env so RLS doesn't return empty; tables are Stories, Desires
-    r = supabase.table("Stories").select("*").eq("user_id", uid).execute()
+    # Use service_role key in .env so RLS doesn't return empty; only non-deleted stories (is_deleted = false or null)
+    r = supabase.table("Stories").select("*").eq("user_id", uid).or_("is_deleted.eq.false").execute()
     rows = list(r.data or [])
     if not rows:
         return {"stories": []}
