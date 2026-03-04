@@ -295,8 +295,8 @@ async def subscription_status(user_id: int = Query(..., description="App user id
     }
 
 
-@router.post("/cancel")
-async def cancel_subscription_during_trial(user_id: int = Query(..., description="App user id")):
+@router.post("/cancel/{user_id}")
+async def cancel_subscription_during_trial(user_id: int):
     """Cancel the subscription only if the user is within the 7-day free trial. Fails if not trialing."""
     if not settings.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
