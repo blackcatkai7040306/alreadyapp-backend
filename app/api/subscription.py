@@ -329,6 +329,78 @@ async def cancel_subscription_during_trial(user_id: int = Query(..., description
     return {"ok": True, "message": "Subscription canceled within free trial."}
 
 
+class ChangePlanRequest(BaseModel):
+    user_id: int = Field(..., description="App user id")
+    plan: str = Field(..., description="Target plan: monthly or annual")
+
+
+@router.post("/change-plan")
+async def change_plan(body: ChangePlanRequest):
+    """
+    Change subscription plan (monthly <-> annual) with proration.
+    Stripe credits unused time on the current plan and charges for the new plan (rest value).
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    try:
+        new_price_id = _get_price_id(body.plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    supabase = get_supabase()
+    r = supabase.table("Users").select("stripe_subscription_id").eq("id", body.user_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    subscription_id = rows[0].get("stripe_subscription_id") or rows[0].get("stripe_subscription_Id")
+    if not subscription_id:
+        raise HTTPException(status_code=400, detail="No active subscription to change")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+    except stripe.StripeError as e:
+        logging.exception("Stripe Subscription.retrieve error: %s", e)
+        raise HTTPException(status_code=400, detail="Subscription not found or invalid")
+    items = (sub.get("items") or {}).get("data") or []
+    if not items:
+        raise HTTPException(status_code=400, detail="Subscription has no items")
+    pr = items[0].get("price")
+    current_price_id = pr.get("id") if isinstance(pr, dict) else (pr if isinstance(pr, str) else None)
+    if current_price_id == new_price_id:
+        raise HTTPException(status_code=400, detail=f"Already on {body.plan} plan")
+    subscription_item_id = items[0].get("id")
+    try:
+        updated = stripe.Subscription.modify(
+            subscription_id,
+            items=[{"id": subscription_item_id, "price": new_price_id}],
+            proration_behavior="create_prorations",
+        )
+    except stripe.StripeError as e:
+        logging.exception("Stripe Subscription.modify error: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to change plan")
+    items_after = (updated.get("items") or {}).get("data") or []
+    price_id_used = (items_after[0].get("price") or {}).get("id") if items_after else None
+    plan = _plan_from_price_id(price_id_used) if price_id_used else body.plan
+    status = (updated.get("status") or "active").lower()
+    trial_end_ts = updated.get("trial_end")
+    trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
+    try:
+        supabase.table("Users").update({
+            "subscription_status": status,
+            "subscription_plan": plan,
+            "trial_end": trial_end_iso,
+        }).eq("id", body.user_id).execute()
+    except Exception as e:
+        logging.exception("Failed to update user after change plan: %s", e)
+    return {
+        "ok": True,
+        "subscription_id": subscription_id,
+        "plan": plan,
+        "status": status,
+        "trial_end": trial_end_iso,
+        "message": "Plan changed with proration (rest value applied).",
+    }
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
 
