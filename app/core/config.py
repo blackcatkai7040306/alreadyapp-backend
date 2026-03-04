@@ -14,11 +14,11 @@ class Settings(BaseSettings):
     CLAUDE_STORY_MODEL: str = "claude-sonnet-4-20250514"
     CLAUDE_STORY_MAX_TOKENS: int = 900  # enough for 2600 chars + theme
 
-    # Stripe (subscription paywall: 7-day trial, annual $199, weekly $7.99)
+    # Stripe (subscription paywall: 7-day trial, monthly and annual plans)
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PRICE_ID_ANNUAL: str = ""
-    STRIPE_PRICE_ID_WEEKLY: str = ""
+    STRIPE_PRICE_ID_MONTHLY: str = ""
     STRIPE_TRIAL_DAYS: int = 7
     # Optional override. If empty, app uses client SYSTEM_PROMPT from story_prompts (first-person past tense, 3rd grade vocab).
     STORY_SYSTEM_PROMPT: str = ""

@@ -108,12 +108,12 @@ async def generate_story_content(body: GenerateStoryRequest):
 
     supabase = get_supabase()
 
-    # Non-subscribers: limit to 1 story per day (UTC). Weekly/annual (trialing or active) get unlimited.
+    # Non-subscribers: limit to 1 story per day (UTC). Monthly/annual (trialing or active) get unlimited.
     user_row = supabase.table("Users").select("subscription_plan", "subscription_status").eq("id", user_id).execute()
     user_data = (user_row.data or [])
     plan = (user_data[0].get("subscription_plan") or user_data[0].get("Subscription_Plan") or "").lower() if user_data else ""
     status = (user_data[0].get("subscription_status") or user_data[0].get("Subscription_Status") or "").lower() if user_data else ""
-    is_subscribed = plan in ("weekly", "annual") and status in ("trialing", "active")
+    is_subscribed = plan in ("monthly", "annual") and status in ("trialing", "active")
     if not is_subscribed:
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
         r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).or_("is_deleted.eq.false,is_deleted.is.null").execute()
@@ -123,7 +123,7 @@ async def generate_story_content(body: GenerateStoryRequest):
         if (count_today or 0) >= 1:
             raise HTTPException(
                 status_code=403,
-                detail="Free users can generate up to 1 story per day. Subscribe to weekly or annual for unlimited stories.",
+                detail="Free users can generate up to 1 story per day. Subscribe to monthly or annual for unlimited stories.",
             )
 
     desire_id = _get_desire_id_by_name(supabase, desireCategory)

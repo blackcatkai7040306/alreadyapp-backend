@@ -8,23 +8,23 @@ from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/subscription", tags=["subscription"])
 
-# Plan identifiers matching paywall: annual ($199/year), weekly ($7.99/week)
+# Plan identifiers matching paywall: monthly, annual
 PLAN_ANNUAL = "annual"
-PLAN_WEEKLY = "weekly"
+PLAN_MONTHLY = "monthly"
 
 def _get_price_id(plan: str) -> str:
     if plan == PLAN_ANNUAL:
         return settings.STRIPE_PRICE_ID_ANNUAL
-    if plan == PLAN_WEEKLY:
-        return settings.STRIPE_PRICE_ID_WEEKLY
-    raise ValueError(f"plan must be {PLAN_ANNUAL!r} or {PLAN_WEEKLY!r}")
+    if plan == PLAN_MONTHLY:
+        return settings.STRIPE_PRICE_ID_MONTHLY
+    raise ValueError(f"plan must be {PLAN_MONTHLY!r} or {PLAN_ANNUAL!r}")
 
 
 def _plan_from_price_id(price_id: str) -> str:
     if price_id == settings.STRIPE_PRICE_ID_ANNUAL:
         return PLAN_ANNUAL
-    if price_id == settings.STRIPE_PRICE_ID_WEEKLY:
-        return PLAN_WEEKLY
+    if price_id == settings.STRIPE_PRICE_ID_MONTHLY:
+        return PLAN_MONTHLY
     return "unknown"
 
 
@@ -113,7 +113,7 @@ async def create_setup_intent(body: CreateSetupIntentRequest):
 
 class CreateSubscriptionRequest(BaseModel):
     user_id: int = Field(..., description="App user id")
-    plan: str = Field(..., description="annual or weekly")
+    plan: str = Field(..., description="monthly or annual")
     payment_method_id: str | None = Field(None, description="Stripe payment method id (pm_xxx) from Payment Sheet. Omit if passing setup_intent_id.")
     setup_intent_id: str | None = Field(None, description="SetupIntent id (seti_xxx) after Payment Sheet confirmation. Used to resolve payment_method when payment_method_id not sent.")
     customer_email: str | None = Field(None, description="Optional; required if user has no Stripe customer yet (for creating one)")
