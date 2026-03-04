@@ -295,12 +295,17 @@ async def subscription_status(user_id: int = Query(..., description="App user id
     }
 
 
-@router.post("/cancel/{user_id}")
-async def cancel_subscription_during_trial(user_id: int):
+class CancelSubscriptionRequest(BaseModel):
+    user_id: int = Field(..., description="App user id")
+
+
+@router.post("/cancel")
+async def cancel_subscription_during_trial(body: CancelSubscriptionRequest):
     """Cancel the subscription only if the user is within the 7-day free trial. Fails if not trialing."""
     if not settings.STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
     supabase = get_supabase()
+    user_id = body.user_id
     r = supabase.table("Users").select("stripe_subscription_id").eq("id", user_id).execute()
     rows = list(r.data or [])
     if not rows:
