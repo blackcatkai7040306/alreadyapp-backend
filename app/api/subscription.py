@@ -295,6 +295,40 @@ async def subscription_status(user_id: int = Query(..., description="App user id
     }
 
 
+@router.post("/cancel")
+async def cancel_subscription_during_trial(user_id: int = Query(..., description="App user id")):
+    """Cancel the subscription only if the user is within the 7-day free trial. Fails if not trialing."""
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    supabase = get_supabase()
+    r = supabase.table("Users").select("stripe_subscription_id").eq("id", user_id).execute()
+    rows = list(r.data or [])
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    subscription_id = rows[0].get("stripe_subscription_id") or rows[0].get("stripe_subscription_Id")
+    if not subscription_id:
+        raise HTTPException(status_code=400, detail="No subscription to cancel")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    synced = _fetch_subscription_from_stripe(str(subscription_id))
+    if not synced:
+        raise HTTPException(status_code=400, detail="Subscription not found or invalid")
+    if synced.get("status") != "trialing":
+        raise HTTPException(
+            status_code=400,
+            detail="Can only cancel during the 7-day free trial. Your trial has ended or subscription is already canceled.",
+        )
+    try:
+        stripe.Subscription.delete(subscription_id)
+    except stripe.StripeError as e:
+        logging.exception("Stripe Subscription.delete error: %s", e)
+        raise HTTPException(status_code=502, detail="Failed to cancel subscription")
+    try:
+        supabase.table("Users").update({"subscription_status": "canceled"}).eq("id", user_id).execute()
+    except Exception as e:
+        logging.exception("Failed to update user subscription_status: %s", e)
+    return {"ok": True, "message": "Subscription canceled within free trial."}
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
 
