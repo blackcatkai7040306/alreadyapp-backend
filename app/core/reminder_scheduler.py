@@ -85,6 +85,7 @@ def _check_and_send_reminders():
         print(morning_on)
         print(row.get("morningTime_Reminder"))
         print(morning_hm, current_hour, current_minute)
+        print(bedtime_hm, current_hour, current_minute)
         if morning_on and morning_hm and morning_hm == (current_hour, current_minute):
             if send_push(token, MORNING_TITLE, MORNING_BODY):
                 print("Sent morning reminder to user %s", row.get("id"))
