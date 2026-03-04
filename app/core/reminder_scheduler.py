@@ -82,8 +82,8 @@ def _check_and_send_reminders():
         bedtime_on = row.get("is_BedTime_Reminder") in (True, "true")
         morning_hm = _parse_hour_minute(row.get("morningTime_Reminder"))
         bedtime_hm = _parse_hour_minute(row.get("bedTime_Reminder"))
-        print(morning_on)
         print(row.get("morningTime_Reminder"))
+        print(row.get("bedTime_Reminder"))
         print(morning_hm, current_hour, current_minute)
         print(bedtime_hm, current_hour, current_minute)
         if morning_on and morning_hm and morning_hm == (current_hour, current_minute):
