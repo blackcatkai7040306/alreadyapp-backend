@@ -109,7 +109,7 @@ async def get_story_play_url(story_id: int):
     if not rows:
         raise HTTPException(status_code=404, detail="Story not found")
     row = rows[0]
-    play_url = (row.get("playUrl")).strip()
+    play_url = (row.get("playUrl") or "").strip()
     if not play_url:
         raise HTTPException(status_code=404, detail="Story has no play URL yet")
     return {"playUrl": play_url}
