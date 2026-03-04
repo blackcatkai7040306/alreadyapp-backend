@@ -16,10 +16,10 @@ from app.core.supabase_client import get_supabase
 scheduler = AsyncIOScheduler()
 
 # Notification copy
-MORNING_TITLE = "Good morning"
-MORNING_BODY = "Your daily story is ready."
-BEDTIME_TITLE = "Time to reflect"
-BEDTIME_BODY = "Evening reflection prompt."
+MORNING_TITLE = "Good Morning 🌞"
+MORNING_BODY = "Start your day with a fresh story made just for you."
+BEDTIME_TITLE = "Wind Down with a Story 🌙"
+BEDTIME_BODY = "Your bedtime story is ready to help you relax."
 
 
 def _parse_hour_minute(value) -> tuple[int, int] | None:
