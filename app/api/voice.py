@@ -102,9 +102,9 @@ class SpeakRequest(BaseModel):
 
 @router.get("/speak/{story_id}")
 async def get_story_play_url(story_id: int):
-    """Return the playUrl for the given story_id. 404 if story not found or playUrl not set. Only returns when voice_id is set and is_deleted is not true."""
+    """Return the playUrl for the given story_id. 404 if story not found or playUrl not set."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("playUrl").eq("id", story_id).neq("voice_id", "").or_("is_deleted.eq.false,is_deleted.is.null").execute()
+    r = supabase.table("Stories").select("playUrl").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="Story not found")
