@@ -63,7 +63,7 @@ async def delete_story(
 ):
     """Soft-delete a story by id (sets is_deleted). Optionally pass user_id to ensure ownership."""
     supabase = get_supabase()
-    r = supabase.table("Stories").select("id", "user_id").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null,voice_id.is.not.null").execute()
+    r = supabase.table("Stories").select("id", "user_id").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null,voice_id.is.null").execute()
     rows = list(r.data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="Story not found")
