@@ -1,12 +1,8 @@
-import io
 import logging
 import os
-import tempfile
-import uuid
 from datetime import datetime, timezone
 
 import httpx
-from mutagen import File as MutagenFile
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from typing import Literal
@@ -15,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.elevenlabs import NARRATION_SPEED_VALUES, add_voice, text_to_speech
+from app.core.story_audio import generate_and_store_story_audio
 from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -118,59 +115,21 @@ async def get_story_play_url(story_id: int):
 @router.post("/generate_audio")
 async def speak(request: SpeakRequest):
     """Get story text from Stories by story_id; return existing playUrl if already played, else TTS, store, return URL."""
-    now_iso = datetime.now(timezone.utc).isoformat()
-    supabase = get_supabase()
-    r = supabase.table("Stories").select("story").eq("id", request.story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
-    rows = r.data or []
-    row = rows[0] if rows else {}
-    text = (row.get("story") or row.get("Story") or "").strip()
-    if not text:
-        raise HTTPException(status_code=404 if not rows else 400, detail="Story not found or has no story text")
-
     try:
-        audio_bytes, content_type = await text_to_speech(
+        result = await generate_and_store_story_audio(
+            story_id=request.story_id,
             voice_id=request.voice_id,
-            text=text,
             model_id=request.model_id,
-            speed=NARRATION_SPEED_VALUES[request.narration_speed],
+            narration_speed=request.narration_speed,
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
-
-    play_length = None
-    try:
-        audio = MutagenFile(io.BytesIO(audio_bytes))
-        if audio is not None and hasattr(audio, "info") and audio.info is not None:
-            play_length = round(audio.info.length, 2)
-    except Exception as e:
-        logging.warning("Could not get audio duration: %s", e)
-
-    public_url = None
-    if settings.SUPABASE_URL and settings.SUPABASE_KEY:
-        bucket = settings.SUPABASE_STORAGE_BUCKET
-        ext = "mp3" if "mpeg" in content_type or "mp3" in content_type else "mp4"
-        path = f"{request.voice_id}/{uuid.uuid4().hex}.{ext}"
-        try:
-            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
-                tmp.write(audio_bytes)
-                tmp_path = tmp.name
-            try:
-                supabase = get_supabase()
-                supabase.storage.from_(bucket).upload(
-                    path,
-                    tmp_path,
-                    file_options={"contentType": str(content_type), "upsert": "true"},
-                )
-                public_url = supabase.storage.from_(bucket).get_public_url(path)
-                update_payload = {"storage": path, "playUrl": public_url, "last_played": now_iso, "voice_id": request.voice_id}
-                if play_length is not None:
-                    update_payload["play_length"] = play_length
-                supabase.table("Stories").update(update_payload).eq("id", request.story_id).execute()
-            finally:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-        except Exception as e:
-            logging.exception("Supabase storage upload failed: %s", e)
-    return {"url": public_url, "content_type": content_type}
+    if result is None:
+        supabase = get_supabase()
+        r = supabase.table("Stories").select("id", "story").eq("id", request.story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
+        rows = r.data or []
+        raise HTTPException(
+            status_code=404 if not rows else 400,
+            detail="Story not found or has no story text",
+        )
+    return {"url": result["url"], "content_type": result["content_type"]}

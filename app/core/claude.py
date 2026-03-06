@@ -11,6 +11,7 @@ from app.core.config import (
     OUTPUT_FORMAT_INSTRUCTION,
 )
 from app.core.story_prompts import CLIENT_SYSTEM_PROMPT, get_story_user_prompt
+from app.core.deepen_prompts import DEEPEN_SYSTEM_PROMPT, get_deepen_user_prompt
 
 
 def _user_data(
@@ -134,4 +135,48 @@ async def generate_story(
     if not theme and desireCategory in THEME_BY_CATEGORY:
         theme = THEME_BY_CATEGORY[desireCategory]
     story = _cap_to_chars(story, STORY_MAX_CHARS)
+    return theme, story
+
+
+async def generate_deepen_story(
+    *,
+    user_name: str,
+    location: str,
+    energy_word: str,
+    loved_one_name: str,
+    dream_location: str,
+    original_desire_category: str,
+    original_theme: str,
+    previous_story_text: str,
+    deepening_count: int,
+) -> tuple[str, str]:
+    """Generate a deepening continuation story. Returns (theme, story). Story is capped at STORY_MAX_CHARS."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise ValueError("ANTHROPIC_API_KEY is not set")
+    user_message = get_deepen_user_prompt(
+        user_name=user_name,
+        location=location,
+        energy_word=energy_word,
+        loved_one_name=loved_one_name or "Not provided",
+        dream_location=dream_location or location,
+        original_desire_category=original_desire_category,
+        previous_story_text=previous_story_text.strip() or "(No previous story)",
+        deepening_count=deepening_count,
+    )
+    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    try:
+        message = await client.messages.create(
+            model=settings.CLAUDE_STORY_MODEL,
+            max_tokens=settings.CLAUDE_STORY_MAX_TOKENS,
+            system=DEEPEN_SYSTEM_PROMPT.strip(),
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except Exception as e:
+        logging.exception("Claude API error (deepen): %s", e)
+        raise
+    if not message.content or not message.content[0].text:
+        raise ValueError("Claude returned no text")
+    story = message.content[0].text.strip()
+    story = _cap_to_chars(story, STORY_MAX_CHARS)
+    theme = f"{original_theme} (Deepening #{deepening_count})"
     return theme, story
