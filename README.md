@@ -61,7 +61,7 @@ Use `voice_id` for text-to-speech or store it per user for “Re-record My Voice
 
 Generates a sensory-rich continuation (deepening) of an existing story using the DEEPEN_MANIFESTATION prompt: first-person past tense, 300–500 words, specific locations and sensory details, ending with "Already done."
 
-- **Body**: `user_id`, `story_id`, `name`, `location`, `energyWord`, optional `lovedOne`, `dreamLocation`
+- **Body**: `user_id`, `story_id`, `name`, `location`, `energyWord`, optional `lovedOne`
 - **Subscription**: Same as story generate (free: 1 story per day; monthly/annual: unlimited)
 - **Database**: The `Stories` table must have `parent_story_id` (integer, nullable) and `deepening_level` (integer). Add them if missing:
 

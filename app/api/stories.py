@@ -41,7 +41,6 @@ class DeepenStoryRequest(BaseModel):
     location: str = Field(..., min_length=1, description="Where their dream life takes place (city or country)")
     energyWord: str = Field(..., description="Energy word: Powerful, Peaceful, Abundant, Grateful, Confident")
     lovedOne: str | None = Field(None, description="Someone they love (optional)")
-    dreamLocation: str | None = Field(None, description="Dream destination (optional; falls back to location)")
 
     @model_validator(mode="after")
     def check_energy(self):
@@ -256,7 +255,6 @@ async def deepen_story(body: DeepenStoryRequest):
             location=body.location,
             energy_word=body.energyWord,
             loved_one_name=body.lovedOne or "Not provided",
-            dream_location=body.dreamLocation or body.location,
             original_desire_category=original_desire_category,
             original_theme=original_theme,
             previous_story_text=previous_story_text or "(No previous story)",

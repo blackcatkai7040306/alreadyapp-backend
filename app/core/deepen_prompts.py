@@ -72,7 +72,6 @@ def get_deepen_user_prompt(
     location: str,
     energy_word: str,
     loved_one_name: str,
-    dream_location: str,
     original_desire_category: str,
     previous_story_text: str,
     deepening_count: int,
@@ -90,7 +89,6 @@ USER DETAILS:
 - Location: {location}
 - Energy Word: {energy_word}
 - Loved One: {loved_one_name}
-- Dream Location: {dream_location}
 
 INSTRUCTIONS:
 Create the next chapter of this manifestation journey. This is deepening #{deepening_count}.
