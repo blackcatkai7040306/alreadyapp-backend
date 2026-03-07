@@ -267,6 +267,7 @@ async def deepen_story(body: DeepenStoryRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Deepen story generation failed: {e!s}")
 
+    orig_voice_id = (orig.get("voice_id") or orig.get("voiceId") or "").strip()
     insert_payload = {
         "theme": theme,
         "user_id": user_id,
@@ -275,6 +276,8 @@ async def deepen_story(body: DeepenStoryRequest):
         "parent_story_id": story_id,
         "deepening_level": deepening_count,
     }
+    if orig_voice_id:
+        insert_payload["voice_id"] = orig_voice_id
     try:
         r = supabase.table("Stories").insert(insert_payload).execute()
     except Exception as e:
@@ -285,7 +288,6 @@ async def deepen_story(body: DeepenStoryRequest):
     new_story_id = created.get("id")
 
     # Generate audio using original story's voice_id (same as generate_audio endpoint)
-    orig_voice_id = (orig.get("voice_id") or orig.get("voiceId") or "").strip()
     if new_story_id and orig_voice_id:
         try:
             await generate_and_store_story_audio(
