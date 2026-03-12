@@ -128,6 +128,11 @@ class UserUpdateRequest(BaseModel):
     sleepTime: int | None = Field(None, description="User's sleep time (minutes)")
     fcm_token: str | None = Field(None, description="FCM device token for push notifications")
     timezone: str | None = Field(None, description="IANA timezone (e.g. America/Los_Angeles) for reminder times")
+    # RevenueCat / alternate subscription provider
+    rc_customer_id: str | None = Field(None, description="RevenueCat customer ID")
+    rc_subscription_status: str | None = Field(None, description="RevenueCat subscription status")
+    rc_subscription_plan: str | None = Field(None, description="RevenueCat subscription plan")
+    subscription_provider: str | None = Field(None, description="Subscription provider (e.g. stripe, revenuecat)")
 
 @router.patch("/{user_id}")
 async def update_user(user_id: str, body: UserUpdateRequest):
@@ -165,6 +170,14 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         payload["fcm_token"] = body.fcm_token
     if body.timezone is not None:
         payload["timezone"] = body.timezone
+    if body.rc_customer_id is not None:
+        payload["rc_customer_id"] = body.rc_customer_id
+    if body.rc_subscription_status is not None:
+        payload["rc_subscription_status"] = body.rc_subscription_status
+    if body.rc_subscription_plan is not None:
+        payload["rc_subscription_plan"] = body.rc_subscription_plan
+    if body.subscription_provider is not None:
+        payload["subscription_provider"] = body.subscription_provider
 
     if not payload:
         raise HTTPException(status_code=400, detail="Provide at least one field to update")
