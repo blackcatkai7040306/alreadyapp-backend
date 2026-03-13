@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     STORY_SYSTEM_PROMPT: str = ""
     # FCM: path to Firebase service account JSON (for reminder push notifications). Empty = reminders not sent.
     FIREBASE_CREDENTIALS_PATH: str = ""
-
-    
+    # Auth: JWT for login/signup. Override in .env for production (e.g. openssl rand -hex 32).
+    JWT_SECRET: str = ""
+    JWT_ALGORITHM: str = "HS256"
 
     class Config:
         env_file = ".env"

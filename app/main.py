@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.desires import router as desires_router
 from app.api.stories import router as stories_router
 from app.api.subscription import router as subscription_router
@@ -34,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api")
 app.include_router(voice_router, prefix="/api")
 app.include_router(stories_router, prefix="/api")
 app.include_router(desires_router, prefix="/api")
