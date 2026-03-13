@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # Auth: JWT for login/signup. Override in .env for production (e.g. openssl rand -hex 32).
     JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
+    # RevenueCat webhook: exact value expected in Authorization header (set in .env).
+    REVENUECAT_WEBHOOK_AUTHORIZATION: str = ""
 
     class Config:
         env_file = ".env"
