@@ -179,6 +179,8 @@ async def update_user(user_id: str, body: UserUpdateRequest):
     if body.subscription_provider is not None:
         payload["subscription_provider"] = body.subscription_provider
 
+    print(payload)
+
     if not payload:
         raise HTTPException(status_code=400, detail="Provide at least one field to update")
 
