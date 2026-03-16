@@ -125,6 +125,12 @@ def _get_desire_id_by_name(supabase, category: str) -> int:
 
 @router.post("/generate")
 async def generate_story_content(body: GenerateStoryRequest):
+    console.log(body)
+    return {
+        "id": 1,
+        "theme": "Theme",
+        "story": "Story",
+    }
     # Match variable names to GenerateStoryRequest field names (self.user_id, self.name, ...)
     user_id = body.user_id
     name = body.name
