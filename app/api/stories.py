@@ -99,6 +99,14 @@ async def delete_story(
     return {"ok": True, "story_id": story_id}
 
 
+def _is_user_subscribed(user_row: dict | None) -> bool:
+    """True if user has an active RevenueCat subscription (rc_subscription_status = active). Only subscribed users can generate more than 1 story per day."""
+    if not user_row:
+        return False
+    rc_status = (user_row.get("rc_subscription_status") or user_row.get("rc_subscription_Status") or "").strip().lower()
+    return rc_status == "active" or rc_status == "trial"
+
+
 def _get_desire_id_by_name(supabase, category: str) -> int:
     """Look up Desires.id by Desires.desireCategory. Raises if not found."""
     r = supabase.table("Desires").select("id").eq("desireCategory", category).execute()
@@ -128,12 +136,11 @@ async def generate_story_content(body: GenerateStoryRequest):
 
     supabase = get_supabase()
 
-    # Non-subscribers: limit to 1 story per day (UTC). Monthly/annual (trialing or active) get unlimited.
-    user_row = supabase.table("Users").select("subscription_plan", "subscription_status").eq("id", user_id).execute()
+    # Non-subscribers: limit to 1 story per day (UTC). RevenueCat subscribed (rc_subscription_status = active) get unlimited.
+    user_row = supabase.table("Users").select("rc_subscription_status").eq("id", user_id).execute()
     user_data = (user_row.data or [])
-    plan = (user_data[0].get("subscription_plan") or user_data[0].get("Subscription_Plan") or "").lower() if user_data else ""
-    status = (user_data[0].get("subscription_status") or user_data[0].get("Subscription_Status") or "").lower() if user_data else ""
-    is_subscribed = plan in ("monthly", "annual") and status in ("trialing", "active")
+    user_record = user_data[0] if user_data else None
+    is_subscribed = _is_user_subscribed(user_record)
     if not is_subscribed:
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
         r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).or_("is_deleted.eq.false,is_deleted.is.null").execute()
@@ -143,7 +150,7 @@ async def generate_story_content(body: GenerateStoryRequest):
         if (count_today or 0) >= 1:
             raise HTTPException(
                 status_code=403,
-                detail="Free users can generate up to 1 story per day. Subscribe to monthly or annual for unlimited stories.",
+                detail="Free users can generate up to 1 story per day. Subscribe for unlimited stories.",
             )
 
     desire_id = _get_desire_id_by_name(supabase, desireCategory)
@@ -231,12 +238,11 @@ async def deepen_story(body: DeepenStoryRequest):
     previous_story_text = (deepen_rows[-1].get("story") or "").strip() if deepen_rows else original_story_text
     deepening_count = len(deepen_rows) + 1
 
-    # Same subscription limit as generate: free = 1 story per day (UTC)
-    user_row = supabase.table("Users").select("subscription_plan", "subscription_status").eq("id", user_id).execute()
+    # Same subscription limit as generate: free = 1 story per day (UTC); RevenueCat subscribed = unlimited
+    user_row = supabase.table("Users").select("rc_subscription_status").eq("id", user_id).execute()
     user_data = (user_row.data or [])
-    plan = (user_data[0].get("subscription_plan") or user_data[0].get("Subscription_Plan") or "").lower() if user_data else ""
-    status = (user_data[0].get("subscription_status") or user_data[0].get("Subscription_Status") or "").lower() if user_data else ""
-    is_subscribed = plan in ("monthly", "annual") and status in ("trialing", "active")
+    user_record = user_data[0] if user_data else None
+    is_subscribed = _is_user_subscribed(user_record)
     if not is_subscribed:
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
         r_today = supabase.table("Stories").select("id", count="exact").eq("user_id", user_id).gte("created_at", today_start).or_("is_deleted.eq.false,is_deleted.is.null").execute()
@@ -246,7 +252,7 @@ async def deepen_story(body: DeepenStoryRequest):
         if (count_today or 0) >= 1:
             raise HTTPException(
                 status_code=403,
-                detail="Free users can generate up to 1 story per day. Subscribe to monthly or annual for unlimited stories.",
+                detail="Free users can generate up to 1 story per day. Subscribe for unlimited stories.",
             )
 
     try:
