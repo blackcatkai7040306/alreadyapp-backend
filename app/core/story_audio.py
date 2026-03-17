@@ -121,9 +121,9 @@ def _format_text_for_tts(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-PAUSE_COMMA = '<break time="0.5s" />'
-PAUSE_SENTENCE = '<break time="0.8s" />'
-PAUSE_PARAGRAPH_END = '<break time="1.5s" />'
+PAUSE_COMMA = '<break time="0.3s" />'
+PAUSE_SENTENCE = '<break time="0.5s" />'
+PAUSE_PARAGRAPH_END = '<break time="1.0s" />'
 
 
 def _add_breaks_to_paragraph(paragraph: str) -> str:
@@ -150,7 +150,7 @@ async def generate_and_store_story_audio(
     voice_id: str,
     text: str | None = None,
     model_id: str = "eleven_multilingual_v2",
-    speed: float = 0.5,
+    speed: float = 1.0,
 ) -> dict | None:
     """
     Generate TTS for a story and store in Supabase. If text is not provided, load from Stories by story_id.
@@ -174,6 +174,7 @@ async def generate_and_store_story_audio(
 
     audio_chunks: list[bytes] = []
     content_type = "audio/mpeg"
+    total_duration = 0.0
 
     for idx, para in enumerate(paragraphs):
         ssml_chunk = _add_breaks_to_paragraph(para)
@@ -194,16 +195,16 @@ async def generate_and_store_story_audio(
         audio_chunks.append(chunk_bytes)
         content_type = ct
 
-    audio_bytes = b"".join(audio_chunks)
+        if MutagenFile:
+            try:
+                af = MutagenFile(io.BytesIO(chunk_bytes))
+                if af and hasattr(af, "info") and af.info:
+                    total_duration += af.info.length
+            except Exception as e:
+                logging.warning("Could not get chunk %d duration: %s", idx + 1, e)
 
-    play_length = None
-    if MutagenFile:
-        try:
-            audio = MutagenFile(io.BytesIO(audio_bytes))
-            if audio is not None and hasattr(audio, "info") and audio.info is not None:
-                play_length = round(audio.info.length, 2)
-        except Exception as e:
-            logging.warning("Could not get audio duration: %s", e)
+    audio_bytes = b"".join(audio_chunks)
+    play_length = round(total_duration, 2) if total_duration > 0 else None
 
     public_url = None
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
