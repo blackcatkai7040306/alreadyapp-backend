@@ -91,7 +91,7 @@ async def text_to_speech(
             "speed": speed,
             "stability": 0.5,
             "similarity_boost": 0.75,
-            "style": 0.0,
+            "style": 0.15,
             "use_speaker_boost": True,
         },
     }

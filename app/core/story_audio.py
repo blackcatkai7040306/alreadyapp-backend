@@ -44,8 +44,9 @@ def _format_text_for_tts(text: str) -> str:
     s = re.sub(r"\s*--\s*", " — ", s)
     # Normalize em dash spacing
     s = re.sub(r"\s*—\s*", " — ", s)
-    # Normalize ellipses
-    s = re.sub(r"\s*\.{3,}\s*", "... ", s)
+    # Normalize ellipses and protect them from sentence splitting
+    ELLIPSIS_PLACEHOLDER = "\x01ELLIPSIS\x01"
+    s = re.sub(r"\.{3,}", ELLIPSIS_PLACEHOLDER, s)
 
     # Split into sentences
     parts = re.split(r"([.!?])\s*", s)
@@ -61,6 +62,9 @@ def _format_text_for_tts(text: str) -> str:
             current = (current + part).strip()
     if current.strip():
         sentences.append(current.strip())
+
+    # Restore ellipses
+    sentences = [sent.replace(ELLIPSIS_PLACEHOLDER, "...") for sent in sentences]
 
     # Break long sentences at conjunctions
     conj = re.compile(r"\s+(and|but|so|or|then|yet|nor)\s+", re.I)
@@ -121,9 +125,10 @@ def _format_text_for_tts(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-PAUSE_COMMA = '<break time="0.3s" />'
-PAUSE_SENTENCE = '<break time="0.5s" />'
-PAUSE_PARAGRAPH_END = '<break time="1.0s" />'
+PAUSE_COMMA = '<break time="0.5s" />'
+PAUSE_ELLIPSIS = '<break time="0.4s" />'
+PAUSE_SENTENCE = '<break time="0.8s" />'
+PAUSE_PARAGRAPH_END = '<break time="1.5s" />'
 
 
 def _add_breaks_to_paragraph(paragraph: str) -> str:
@@ -133,13 +138,23 @@ def _add_breaks_to_paragraph(paragraph: str) -> str:
     the tag count stays under 20, avoiding ElevenLabs speed-up artifacts.
     """
     parts: list[str] = []
-    for i, ch in enumerate(paragraph):
+    length = len(paragraph)
+    i = 0
+    while i < length:
+        ch = paragraph[i]
+        # Detect ellipsis (three dots)
+        if ch == "." and i + 2 < length and paragraph[i + 1] == "." and paragraph[i + 2] == ".":
+            parts.append("...")
+            i += 3
+            parts.append(f" {PAUSE_ELLIPSIS}")
+            continue
         parts.append(ch)
-        nxt = paragraph[i + 1] if i + 1 < len(paragraph) else ""
+        nxt = paragraph[i + 1] if i + 1 < length else ""
         if ch in ".!?" and nxt == " ":
             parts.append(f" {PAUSE_SENTENCE}")
         elif ch == "," and nxt == " ":
             parts.append(f" {PAUSE_COMMA}")
+        i += 1
     result = "".join(parts)
     return f"<speak>{result} {PAUSE_PARAGRAPH_END}</speak>"
 
