@@ -74,6 +74,9 @@ async def text_to_speech(
     text: str,
     model_id: str = "eleven_multilingual_v2",
     speed: float = 1.0,
+    enable_ssml: bool = False,
+    previous_text: str | None = None,
+    next_text: str | None = None,
 ) -> tuple[bytes, str]:
     speed = max(TTS_SPEED_MIN, min(TTS_SPEED_MAX, float(speed)))
     headers = {
@@ -81,11 +84,23 @@ async def text_to_speech(
         "Content-Type": "application/json",
         "Accept": "audio/mpeg",
     }
-    payload = {
+    payload: dict = {
         "text": text,
         "model_id": model_id,
-        "voice_settings": {"speed": speed},
+        "voice_settings": {
+            "speed": speed,
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.0,
+            "use_speaker_boost": True,
+        },
     }
+    if enable_ssml:
+        payload["enable_ssml"] = True
+    if previous_text:
+        payload["previous_text"] = previous_text
+    if next_text:
+        payload["next_text"] = next_text
 
     async with httpx.AsyncClient(base_url=settings.ELEVENLABS_BASE_URL, timeout=60.0) as client:
         response = await client.post(

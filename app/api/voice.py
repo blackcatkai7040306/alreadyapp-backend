@@ -5,12 +5,10 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.core.elevenlabs import NARRATION_SPEED_VALUES, add_voice, text_to_speech
+from app.core.elevenlabs import add_voice, text_to_speech
 from app.core.story_audio import generate_and_store_story_audio
 from app.core.supabase_client import get_supabase
 
@@ -92,10 +90,7 @@ class SpeakRequest(BaseModel):
     voice_id: str = Field(..., min_length=1)
     story_id: int = Field(..., description="Story id; story text is read from Stories.story")
     model_id: str = Field(default="eleven_multilingual_v2")
-    narration_speed: Literal["slow", "normal", "very_fast", "fast"] = Field(
-        default="normal",
-        description="Slow (0.85x), Normal (1.0x), Very Fast (1.15x), Fast (1.2x); ElevenLabs max 1.2x",
-    )
+    speed: float = Field(default=0.8, ge=0.7, le=1.2, description="Speech speed (0.7–1.2); 0.8 = slower, 1.0 = normal")
 
 @router.get("/speak/{story_id}")
 async def get_story_play_url(story_id: int):
@@ -120,7 +115,7 @@ async def speak(request: SpeakRequest):
             story_id=request.story_id,
             voice_id=request.voice_id,
             model_id=request.model_id,
-            narration_speed=request.narration_speed,
+            speed=request.speed,
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)
@@ -133,3 +128,4 @@ async def speak(request: SpeakRequest):
             detail="Story not found or has no story text",
         )
     return {"url": result["url"], "content_type": result["content_type"]}
+    # return {"format_text": result["format_text"], "text_with_breaks": result["text_with_breaks"]}
