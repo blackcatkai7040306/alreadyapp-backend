@@ -3,6 +3,7 @@
 import io
 import logging
 import os
+import re
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -16,6 +17,21 @@ try:
 except ImportError:
     MutagenFile = None
 
+# ElevenLabs SSML: natural pauses so narration isn't rushed (supported by eleven_multilingual_v2)
+BREAK_AFTER_SENTENCE_S = 0.4
+BREAK_AFTER_COMMA_S = 0.2
+
+
+def _insert_ssml_breaks(text: str) -> str:
+    """Insert ElevenLabs <break time="Xs" /> after sentence endings and commas for natural narration pacing."""
+    if not text or not text.strip():
+        return text
+    # After sentence-ending punctuation: add a short pause
+    text = re.sub(r"([.!?])(\s+|$)", r"\1 <break time=\"" + str(BREAK_AFTER_SENTENCE_S) + r"s\" /> \2", text)
+    # After commas (when followed by space): add a shorter pause; avoid excessive breaks
+    text = re.sub(r",(\s+)", r", <break time=\"" + str(BREAK_AFTER_COMMA_S) + r"s\" />\1", text)
+    return text.strip()
+
 
 async def generate_and_store_story_audio(
     *,
@@ -24,7 +40,7 @@ async def generate_and_store_story_audio(
     text: str | None = None,
     model_id: str = "eleven_multilingual_v2",
     speed: float | None = None,
-    narration_speed: str = "normal",
+    narration_speed: str = "slow",
 ) -> dict | None:
     """
     Generate TTS for a story and store in Supabase. If text is not provided, load from Stories by story_id.
@@ -40,10 +56,11 @@ async def generate_and_store_story_audio(
     if not text:
         return None
 
-    speed_val = speed if speed is not None else NARRATION_SPEED_VALUES.get(narration_speed, 1.0)
+    text_with_breaks = _insert_ssml_breaks(text)
+    speed_val = speed if speed is not None else NARRATION_SPEED_VALUES.get(narration_speed, 0.85)
     audio_bytes, content_type = await text_to_speech(
         voice_id=voice_id,
-        text=text,
+        text=text_with_breaks,
         model_id=model_id,
         speed=speed_val,
     )

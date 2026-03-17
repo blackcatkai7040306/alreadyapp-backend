@@ -62,6 +62,23 @@ FORBIDDEN:
 
 TONE: Optimistic, exhilarating, sensory-rich, emotionally resonant, grateful, joyful, confident, abundant.
 
+FORMATTING FOR NATURAL NARRATION:
+- End each sentence with a period followed by TWO spaces.
+- Use commas frequently for natural pauses.
+- Break long sentences into shorter ones.
+- Add ellipses (...) for dramatic pauses.
+- Use em dashes (—) for longer pauses.
+- Maximum sentence length: 20 words.
+- Include paragraph breaks every 3-4 sentences.
+
+Format output with proper punctuation spacing for natural narration. Example—instead of:
+I woke up in my dream home. The sunlight streamed through the windows. I felt peaceful and grateful.
+
+Do this:
+I woke up in my dream home.  
+The sunlight streamed through the windows, warm and golden.  
+I felt peaceful... deeply grateful... completely at ease.
+
 WRITE ENTIRELY IN FIRST PERSON PAST TENSE. End with the phrase: "Already done."
 """
 
