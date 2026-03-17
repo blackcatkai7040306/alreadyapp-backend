@@ -208,8 +208,8 @@ async def deepen_story(body: DeepenStoryRequest):
     user_id = body.user_id
     story_id = body.story_id
 
-    # Load original story and verify ownership (include voice_id for auto audio after deepen)
-    r_orig = supabase.table("Stories").select("id", "user_id", "theme", "story", "desire_id", "voice_id").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
+    # Load story and verify ownership (include parent_story_id to resolve root)
+    r_orig = supabase.table("Stories").select("id", "user_id", "theme", "story", "desire_id", "voice_id", "parent_story_id").eq("id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     orig_rows = list(r_orig.data or [])
     if not orig_rows:
         raise HTTPException(status_code=404, detail="Story not found")
@@ -218,25 +218,35 @@ async def deepen_story(body: DeepenStoryRequest):
     if story_user_id != user_id:
         raise HTTPException(status_code=403, detail="Story does not belong to this user")
 
-    original_theme = (orig.get("theme") or "").strip() or "Manifestation"
-    original_story_text = (orig.get("story") or "").strip()
     desire_id = orig.get("desire_id")
     if desire_id is None:
         raise HTTPException(status_code=400, detail="Original story has no desire_id")
+
+    # Resolve root story (Option A: always use root for theme and counting so numbering is #1, #2, #3)
+    root = orig
+    while root.get("parent_story_id") is not None:
+        parent_id = root.get("parent_story_id") or root.get("parent_story_Id")
+        r_parent = supabase.table("Stories").select("id", "theme", "story", "voice_id", "parent_story_id").eq("id", parent_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
+        parent_rows = list(r_parent.data or [])
+        if not parent_rows:
+            break
+        root = parent_rows[0]
+    root_id = root.get("id") or root.get("Id")
+    original_theme = (root.get("theme") or "").strip() or "Manifestation"
+    root_story_text = (root.get("story") or "").strip()
 
     # Get desire category for prompt
     dr = supabase.table("Desires").select("desireCategory").eq("id", desire_id).execute()
     desire_rows = list(dr.data or [])
     original_desire_category = desire_rows[0].get("desireCategory", "Life") if desire_rows else "Life"
-    # Existing deepenings for this story (requires parent_story_id, deepening_level on Stories)
-    r_deepen = supabase.table("Stories").select("id", "story", "deepening_level").eq("parent_story_id", story_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
+    # Existing deepenings under the root (so count is 1, 2, 3...)
+    r_deepen = supabase.table("Stories").select("id", "story", "deepening_level").eq("parent_story_id", root_id).or_("is_deleted.eq.false,is_deleted.is.null").execute()
     deepen_rows = list(r_deepen.data or [])
-    # Sort by deepening_level ascending and take last for "previous" text
     def _level(row):
         v = row.get("deepening_level") or row.get("deepeningLevel") or 0
         return int(v) if v is not None else 0
     deepen_rows.sort(key=_level)
-    previous_story_text = (deepen_rows[-1].get("story") or "").strip() if deepen_rows else original_story_text
+    previous_story_text = (deepen_rows[-1].get("story") or "").strip() if deepen_rows else root_story_text
     deepening_count = len(deepen_rows) + 1
 
     # Same subscription limit as generate: free = 1 story per day (UTC); RevenueCat subscribed = unlimited
@@ -274,13 +284,13 @@ async def deepen_story(body: DeepenStoryRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Deepen story generation failed: {e!s}")
 
-    orig_voice_id = (orig.get("voice_id") or orig.get("voiceId") or "").strip()
+    orig_voice_id = (root.get("voice_id") or root.get("voiceId") or "").strip()
     insert_payload = {
         "theme": theme,
         "user_id": user_id,
         "desire_id": desire_id,
         "story": story,
-        "parent_story_id": story_id,
+        "parent_story_id": root_id,
         "deepening_level": deepening_count,
     }
     if orig_voice_id:
@@ -309,5 +319,5 @@ async def deepen_story(body: DeepenStoryRequest):
         "theme": theme,
         "story": story,
         "deepening_level": deepening_count,
-        "parent_story_id": story_id,
+        "parent_story_id": root_id,
     }
