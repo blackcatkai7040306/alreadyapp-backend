@@ -58,7 +58,7 @@ async def generate_and_store_story_audio(
         return None
 
     text_with_breaks = _insert_ssml_breaks(text)
-    speed_val = 0.85
+    speed_val = 0.7
     audio_bytes, content_type = await text_to_speech(
         voice_id=voice_id,
         text=text_with_breaks,
