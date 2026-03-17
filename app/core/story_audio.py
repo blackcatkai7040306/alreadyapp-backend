@@ -20,7 +20,7 @@ except ImportError:
 # ElevenLabs SSML: natural pauses so the listener can process (supported by eleven_multilingual_v2)
 # Longer sentence pause so it doesn't feel like "one long sentence"; comma pause for natural flow.
 BREAK_AFTER_SENTENCE_S = 0.8
-BREAK_AFTER_COMMA_S = 0.3
+BREAK_AFTER_COMMA_S = 0.7
 
 
 def _insert_ssml_breaks(text: str) -> str:
