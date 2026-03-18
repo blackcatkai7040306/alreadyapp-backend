@@ -130,14 +130,38 @@ PAUSE_COMMA = '<break time="0.2s" />'  # quick breath between clauses
 PAUSE_ELLIPSIS = '<break time="0.5s" />'  # brief dramatic pause
 PAUSE_COLON = '<break time="0.2s" />'  # short clause setup pause
 PAUSE_SENTENCE = '<break time="0.7s" />'  # end of thought, listener processes
+PAUSE_LAST_SENTENCE = '<break time="0s" />'  # last sentence of chunk only
 PAUSE_PARAGRAPH = '<break time="0s" />'  # scene/topic change (ElevenLabs max)
+
+
+def _last_sentence_end_index(paragraph: str) -> int:
+    """Index of the last character that ends a sentence (after which we add PAUSE_SENTENCE), or -1."""
+    length = len(paragraph)
+    last = -1
+    i = 0
+    while i < length:
+        ch = paragraph[i]
+        nxt = paragraph[i + 1] if i + 1 < length else ""
+        if ch in "!?" and (nxt == " " or nxt == ""):
+            last = i
+        elif ch == "." and (nxt == " " or nxt == ""):
+            # Don't count dots that are part of "..." (we add PAUSE_ELLIPSIS there, not PAUSE_SENTENCE)
+            is_ellipsis = i + 2 < length and paragraph[i + 1] == "." and paragraph[i + 2] == "."
+            if not is_ellipsis:
+                last = i
+        if ch == "." and i + 2 < length and paragraph[i + 1] == "." and paragraph[i + 2] == ".":
+            i += 2  # skip ellipsis
+        i += 1
+    return last
 
 
 def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bool = False) -> str:
     """
     Add SSML break tags per punctuation. Chunk per paragraph to limit tag count.
     No trailing break between chunks so playback continues with 0s gap.
+    0.2s break after the last sentence of the chunk; normal sentence break elsewhere.
     """
+    last_sentence_end = _last_sentence_end_index(paragraph)
     parts: list[str] = []
     length = len(paragraph)
     i = 0
@@ -152,7 +176,7 @@ def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bo
         nxt = paragraph[i + 1] if i + 1 < length else ""
         if ch in ".!?":
             if nxt == " " or nxt == "":
-                parts.append(f" {PAUSE_SENTENCE}")
+                parts.append(f" {PAUSE_LAST_SENTENCE if i == last_sentence_end else PAUSE_SENTENCE}")
         elif ch == ":" and nxt == " ":
             parts.append(f" {PAUSE_COLON}")
         elif ch == "," and nxt == " ":
