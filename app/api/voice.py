@@ -90,7 +90,6 @@ class SpeakRequest(BaseModel):
     voice_id: str = Field(..., min_length=1)
     story_id: int = Field(..., description="Story id; story text is read from Stories.story")
     model_id: str = Field(default="eleven_multilingual_v2")
-    speed: float = Field(default=0.85, ge=0.7, le=1.2, description="Speech speed (0.7–1.2); 0.85 = slower, easier to follow")
 
 @router.get("/speak/{story_id}")
 async def get_story_play_url(story_id: int):
@@ -115,7 +114,6 @@ async def speak(request: SpeakRequest):
             story_id=request.story_id,
             voice_id=request.voice_id,
             model_id=request.model_id,
-            speed=request.speed,
         )
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         _raise_http_from_httpx(e)

@@ -126,16 +126,17 @@ def _format_text_for_tts(text: str) -> str:
 
 
 # ElevenLabs SSML pauses (max 3s per break). Reference: natural narration pacing.
-PAUSE_COMMA = '<break time="0.5s" />'  # quick breath between clauses
+PAUSE_COMMA = '<break time="0.2s" />'  # quick breath between clauses
 PAUSE_ELLIPSIS = '<break time="0.5s" />'  # brief dramatic pause
-PAUSE_SENTENCE = '<break time="1.5s" />'  # end of thought, listener processes
-PAUSE_PARAGRAPH = '<break time="3.0s" />'  # scene/topic change (ElevenLabs max)
+PAUSE_COLON = '<break time="0.2s" />'  # short clause setup pause
+PAUSE_SENTENCE = '<break time="0.7s" />'  # end of thought, listener processes
+PAUSE_PARAGRAPH = '<break time="0s" />'  # scene/topic change (ElevenLabs max)
 
 
-def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bool) -> str:
+def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bool = False) -> str:
     """
     Add SSML break tags per punctuation. Chunk per paragraph to limit tag count.
-    Trailing 3.0s break only between paragraphs (not after the final chunk).
+    No trailing break between chunks so playback continues with 0s gap.
     """
     parts: list[str] = []
     length = len(paragraph)
@@ -152,6 +153,8 @@ def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bo
         if ch in ".!?":
             if nxt == " " or nxt == "":
                 parts.append(f" {PAUSE_SENTENCE}")
+        elif ch == ":" and nxt == " ":
+            parts.append(f" {PAUSE_COLON}")
         elif ch == "," and nxt == " ":
             parts.append(f" {PAUSE_COMMA}")
         i += 1
@@ -166,7 +169,6 @@ async def generate_and_store_story_audio(
     voice_id: str,
     text: str | None = None,
     model_id: str = "eleven_multilingual_v2",
-    speed: float = 0.75,
 ) -> dict | None:
     """
     Generate TTS for a story and store in Supabase. If text is not provided, load from Stories by story_id.
@@ -186,27 +188,27 @@ async def generate_and_store_story_audio(
         return None
 
     formatted_text = _format_text_for_tts(text)
+    print("[TTS] formatted text (full):\n", formatted_text, flush=True)
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", formatted_text) if p.strip()]
+    print(f"[TTS] total chunks: {len(paragraphs)}", flush=True)
 
     audio_chunks: list[bytes] = []
     content_type = "audio/mpeg"
     total_duration = 0.0
 
     for idx, para in enumerate(paragraphs):
-        is_last = idx == len(paragraphs) - 1
-        ssml_chunk = _add_breaks_to_paragraph(
-            para, add_trailing_paragraph_break=not is_last
-        )
+        # No trailing break between chunks so playback continues with 0s gap
+        ssml_chunk = _add_breaks_to_paragraph(para, add_trailing_paragraph_break=False)
         prev_text = paragraphs[idx - 1] if idx > 0 else None
         next_text = paragraphs[idx + 1] if idx < len(paragraphs) - 1 else None
 
-        logging.debug("[TTS] chunk %d/%d SSML length=%d", idx + 1, len(paragraphs), len(ssml_chunk))
+        print(f"[TTS] chunk {idx + 1}/{len(paragraphs)} paragraph:\n", para, flush=True)
+        print(f"[TTS] chunk {idx + 1}/{len(paragraphs)} SSML:\n", ssml_chunk, flush=True)
 
         chunk_bytes, ct = await text_to_speech(
             voice_id=voice_id,
             text=ssml_chunk,
             model_id=model_id,
-            speed=speed,
             enable_ssml=True,
             previous_text=prev_text,
             next_text=next_text,

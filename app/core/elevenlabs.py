@@ -55,30 +55,15 @@ def _tts_url(voice_id: str) -> str:
     return f"/v1/text-to-speech/{voice_id}"
 
 
-# Client options: Slow (0.85x), Normal (1.0x), Very Fast (1.35x), Fast (1.5x).
-# ElevenLabs API allows speed in [0.7, 1.2]; we map Very Fast→1.15, Fast→1.2.
-NARRATION_SPEED_VALUES = {
-    "slow": 0.85,
-    "normal": 1.0,
-    "very_fast": 1.15,
-    "fast": 1.2,
-}
-
-# ElevenLabs voice_settings.speed allowed range
-TTS_SPEED_MIN, TTS_SPEED_MAX = 0.7, 1.2
-
-
 async def text_to_speech(
     *,
     voice_id: str,
     text: str,
     model_id: str = "eleven_multilingual_v2",
-    speed: float = 1.0,
     enable_ssml: bool = False,
     previous_text: str | None = None,
     next_text: str | None = None,
 ) -> tuple[bytes, str]:
-    speed = max(TTS_SPEED_MIN, min(TTS_SPEED_MAX, float(speed)))
     headers = {
         "xi-api-key": settings.ELEVENLABS_API_KEY,
         "Content-Type": "application/json",
@@ -88,10 +73,9 @@ async def text_to_speech(
         "text": text,
         "model_id": model_id,
         "voice_settings": {
-            "speed": speed,
             "stability": 0.5,
             "similarity_boost": 0.75,
-            "style": 0.15,
+            # "style": 0.15,
             "use_speaker_boost": True,
         },
     }
