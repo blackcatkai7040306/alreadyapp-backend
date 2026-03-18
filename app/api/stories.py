@@ -314,10 +314,44 @@ async def deepen_story(body: DeepenStoryRequest):
         except Exception as e:
             logging.warning("Auto-generate audio for deepening story %s failed: %s", new_story_id, e)
 
-    return {
-        "id": new_story_id,
-        "theme": theme,
-        "story": story,
-        "deepening_level": deepening_count,
-        "parent_story_id": root_id,
-    }
+    # Return a full story object (same shape as /api/stories list, plus desire_name)
+    story_row: dict = {}
+    if new_story_id:
+        try:
+            r_story = (
+                supabase.table("Stories")
+                .select("*")
+                .eq("id", new_story_id)
+                .or_("is_deleted.eq.false,is_deleted.is.null")
+                .execute()
+            )
+            story_rows = list(r_story.data or [])
+            story_row = story_rows[0] if story_rows else {}
+        except Exception as e:
+            logging.warning("Could not load deepening story row %s: %s", new_story_id, e)
+
+    # Add desire_name (Desires.desireCategory) to match existing list endpoint
+    try:
+        dr_name = supabase.table("Desires").select("desireCategory").eq("id", desire_id).execute()
+        desire_rows2 = list(dr_name.data or [])
+        story_row["desire_name"] = desire_rows2[0].get("desireCategory") if desire_rows2 else None
+    except Exception as e:
+        logging.warning("Could not load desire_name for deepening story %s: %s", new_story_id, e)
+        story_row["desire_name"] = None
+
+    # Ensure required keys exist even if the reload failed
+    story_row.setdefault("id", new_story_id)
+    story_row.setdefault("theme", theme)
+    story_row.setdefault("story", story)
+    story_row.setdefault("desire_id", desire_id)
+    story_row.setdefault("user_id", user_id)
+    story_row.setdefault("voice_id", orig_voice_id or None)
+    story_row.setdefault("deepening_level", deepening_count)
+    story_row.setdefault("parent_story_id", root_id)
+    story_row.setdefault("is_deleted", False)
+
+    # If the DB uses playUrl (camelCase) but clients expect playUrl, keep as-is.
+    if "playUrl" not in story_row:
+        story_row["playUrl"] = ""
+
+    return story_row
