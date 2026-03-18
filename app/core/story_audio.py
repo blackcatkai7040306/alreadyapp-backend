@@ -199,7 +199,8 @@ async def generate_and_store_story_audio(
         )
         prev_text = paragraphs[idx - 1] if idx > 0 else None
         next_text = paragraphs[idx + 1] if idx < len(paragraphs) - 1 else None
-
+       
+        print(ssml_chunk)
         logging.debug("[TTS] chunk %d/%d SSML length=%d", idx + 1, len(paragraphs), len(ssml_chunk))
 
         chunk_bytes, ct = await text_to_speech(
