@@ -125,24 +125,23 @@ def _format_text_for_tts(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-PAUSE_COMMA = '<break time="0.5s" />'
-PAUSE_ELLIPSIS = '<break time="0.4s" />'
-PAUSE_SENTENCE = '<break time="0.8s" />'
-PAUSE_PARAGRAPH_END = '<break time="1.5s" />'
+# ElevenLabs SSML pauses (max 3s per break). Reference: natural narration pacing.
+PAUSE_COMMA = '<break time="0.5s" />'  # quick breath between clauses
+PAUSE_ELLIPSIS = '<break time="0.5s" />'  # brief dramatic pause
+PAUSE_SENTENCE = '<break time="1.5s" />'  # end of thought, listener processes
+PAUSE_PARAGRAPH = '<break time="3.0s" />'  # scene/topic change (ElevenLabs max)
 
 
-def _add_breaks_to_paragraph(paragraph: str) -> str:
+def _add_breaks_to_paragraph(paragraph: str, *, add_trailing_paragraph_break: bool) -> str:
     """
-    Add SSML break tags to a single paragraph by iterating character-by-
-    character (never regex-on-regex).  Each paragraph is short enough that
-    the tag count stays under 20, avoiding ElevenLabs speed-up artifacts.
+    Add SSML break tags per punctuation. Chunk per paragraph to limit tag count.
+    Trailing 3.0s break only between paragraphs (not after the final chunk).
     """
     parts: list[str] = []
     length = len(paragraph)
     i = 0
     while i < length:
         ch = paragraph[i]
-        # Detect ellipsis (three dots)
         if ch == "." and i + 2 < length and paragraph[i + 1] == "." and paragraph[i + 2] == ".":
             parts.append("...")
             i += 3
@@ -150,13 +149,15 @@ def _add_breaks_to_paragraph(paragraph: str) -> str:
             continue
         parts.append(ch)
         nxt = paragraph[i + 1] if i + 1 < length else ""
-        if ch in ".!?" and nxt == " ":
-            parts.append(f" {PAUSE_SENTENCE}")
+        if ch in ".!?":
+            if nxt == " " or nxt == "":
+                parts.append(f" {PAUSE_SENTENCE}")
         elif ch == "," and nxt == " ":
             parts.append(f" {PAUSE_COMMA}")
         i += 1
     result = "".join(parts)
-    return f"<speak>{result} {PAUSE_PARAGRAPH_END}</speak>"
+    tail = f" {PAUSE_PARAGRAPH}" if add_trailing_paragraph_break else ""
+    return f"<speak>{result}{tail}</speak>"
 
 
 async def generate_and_store_story_audio(
@@ -165,7 +166,7 @@ async def generate_and_store_story_audio(
     voice_id: str,
     text: str | None = None,
     model_id: str = "eleven_multilingual_v2",
-    speed: float = 1.0,
+    speed: float = 0.85,
 ) -> dict | None:
     """
     Generate TTS for a story and store in Supabase. If text is not provided, load from Stories by story_id.
@@ -192,11 +193,14 @@ async def generate_and_store_story_audio(
     total_duration = 0.0
 
     for idx, para in enumerate(paragraphs):
-        ssml_chunk = _add_breaks_to_paragraph(para)
+        is_last = idx == len(paragraphs) - 1
+        ssml_chunk = _add_breaks_to_paragraph(
+            para, add_trailing_paragraph_break=not is_last
+        )
         prev_text = paragraphs[idx - 1] if idx > 0 else None
         next_text = paragraphs[idx + 1] if idx < len(paragraphs) - 1 else None
 
-        print(f"[TTS] chunk {idx + 1}/{len(paragraphs)}:\n", ssml_chunk, flush=True)
+        logging.debug("[TTS] chunk %d/%d SSML length=%d", idx + 1, len(paragraphs), len(ssml_chunk))
 
         chunk_bytes, ct = await text_to_speech(
             voice_id=voice_id,
