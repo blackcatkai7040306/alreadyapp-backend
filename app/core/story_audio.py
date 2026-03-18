@@ -166,7 +166,7 @@ async def generate_and_store_story_audio(
     voice_id: str,
     text: str | None = None,
     model_id: str = "eleven_multilingual_v2",
-    speed: float = 0.85,
+    speed: float = 0.75,
 ) -> dict | None:
     """
     Generate TTS for a story and store in Supabase. If text is not provided, load from Stories by story_id.
