@@ -188,10 +188,9 @@ async def generate_and_store_story_audio(
         return None
 
     formatted_text = _format_text_for_tts(text)
-    print("[TTS] formatted text (full):\n", formatted_text, flush=True)
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", formatted_text) if p.strip()]
-    print(f"[TTS] total chunks: {len(paragraphs)}", flush=True)
-
+    logging.debug("[TTS] formatted text (full):\n%s", formatted_text)
+    logging.debug("[TTS] total chunks: %d", len(paragraphs))
     audio_chunks: list[bytes] = []
     content_type = "audio/mpeg"
     total_duration = 0.0
@@ -202,8 +201,14 @@ async def generate_and_store_story_audio(
         prev_text = paragraphs[idx - 1] if idx > 0 else None
         next_text = paragraphs[idx + 1] if idx < len(paragraphs) - 1 else None
 
-        print(f"[TTS] chunk {idx + 1}/{len(paragraphs)} paragraph:\n", para, flush=True)
-        print(f"[TTS] chunk {idx + 1}/{len(paragraphs)} SSML:\n", ssml_chunk, flush=True)
+        logging.debug("[TTS] chunk %d/%d paragraph:\n%s", idx + 1, len(paragraphs), para)
+        logging.debug(
+            "[TTS] chunk %d/%d SSML (len=%d):\n%s",
+            idx + 1,
+            len(paragraphs),
+            len(ssml_chunk),
+            ssml_chunk,
+        )
 
         chunk_bytes, ct = await text_to_speech(
             voice_id=voice_id,

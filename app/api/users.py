@@ -1,11 +1,13 @@
 import logging
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, HTTPException, Header
 
 from pydantic import BaseModel, Field
 
 from app.api.subscription import _fetch_subscription_from_stripe
+from app.core.config import settings
 from app.core.supabase_client import get_supabase
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -196,3 +198,122 @@ async def update_user(user_id: str, body: UserUpdateRequest):
         uid = None
     day_streak = _get_streak_days(supabase, uid) if uid is not None else 0
     return {"updated": True, "data": r.data, "day_streak": day_streak}
+
+
+async def _get_supabase_user_from_token(access_token: str) -> dict | None:
+    """Return Supabase auth user from an access token, or None if invalid."""
+    if not settings.SUPABASE_URL:
+        return None
+    token = (access_token or "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    if not token:
+        return None
+    url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": settings.SUPABASE_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code >= 400:
+            return None
+        data = resp.json()
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+async def _delete_supabase_auth_user(auth_user_id: str) -> None:
+    """Delete Supabase auth user via admin API (best-effort)."""
+    if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+        return
+    uid = (auth_user_id or "").strip()
+    if not uid:
+        return
+    url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{uid}"
+    headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_KEY}",
+        "apikey": settings.SUPABASE_KEY,
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        await client.delete(url, headers=headers)
+
+
+@router.post("/{user_id}/close-account")
+async def close_account(
+    user_id: int,
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """
+    Permanently delete the user's app data:
+    - Delete Stories rows for the user
+    - Remove associated audio files from Supabase Storage (Stories.storage)
+    - Delete Users row
+    - Delete Supabase Auth user (admin) (best-effort)
+
+    Requires a valid Supabase access token in Authorization header.
+    No JSON body required (avoids 422 when clients POST with an empty body).
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization")
+
+    auth_user = await _get_supabase_user_from_token(authorization)
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="Invalid Authorization")
+
+    token_uid = (auth_user.get("id") or "").strip()
+    token_email = (auth_user.get("email") or "").strip().lower()
+    if not token_uid or not token_email:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    supabase = get_supabase()
+
+    # Verify Users row belongs to this auth user (by email).
+    ur = supabase.table("Users").select("id,email").eq("id", user_id).execute()
+    urows = list(ur.data or [])
+    if not urows:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_row = urows[0]
+    db_email = (user_row.get("email") or "").strip().lower()
+    if db_email != token_email:
+        raise HTTPException(status_code=403, detail="User mismatch")
+
+    # 1) Collect storage paths for user's stories (audio files) then delete stories.
+    sr = supabase.table("Stories").select("id,storage").eq("user_id", user_id).execute()
+    srows = list(sr.data or [])
+    storage_paths = []
+    for s in srows:
+        p = (s.get("storage") or "").strip()
+        if p:
+            storage_paths.append(p)
+
+    # Remove files from storage (best-effort).
+    bucket = (settings.SUPABASE_STORAGE_BUCKET or "").strip()
+    if bucket and storage_paths:
+        try:
+            # Supabase storage remove can take a list of paths.
+            supabase.storage.from_(bucket).remove(storage_paths)
+        except Exception as e:
+            logging.warning("Storage remove failed: %s", e)
+
+    # Delete Stories rows.
+    try:
+        supabase.table("Stories").delete().eq("user_id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to delete stories: {e}")
+
+    # Delete Users row.
+    try:
+        supabase.table("Users").delete().eq("id", user_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to delete user: {e}")
+
+    # Delete Supabase auth user (best-effort).
+    try:
+        await _delete_supabase_auth_user(token_uid)
+    except Exception as e:
+        logging.warning("Auth user delete failed: %s", e)
+
+    return {"ok": True, "deleted_user_id": user_id}
