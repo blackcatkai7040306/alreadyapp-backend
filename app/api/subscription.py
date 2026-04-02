@@ -231,7 +231,8 @@ async def create_subscription(body: CreateSubscriptionRequest):
     items = (sub.get("items") or {}).get("data") or []
     price_id_used = (items[0].get("price") or {}).get("id") if items else None
     plan = _plan_from_price_id(price_id_used)
-    status = (sub.get("status") or "trialing").lower()
+    raw_status = (sub.get("status") or "trialing").lower()
+    status = "trial" if raw_status == "trialing" else raw_status
     trial_end_ts = sub.get("trial_end")
     trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
     try:
@@ -474,7 +475,8 @@ async def stripe_webhook(request: Request):
         items = (sub.get("items") or {}).get("data") or []
         price_id = (items[0].get("price") or {}).get("id") if items else None
         plan = _plan_from_price_id(price_id) if price_id else "unknown"
-        status = (sub.get("status") or "trialing").lower()
+        raw_status = (sub.get("status") or "trialing").lower()
+        status = "trial" if raw_status == "trialing" else raw_status
         trial_end_iso = datetime_from_timestamp(trial_end_ts).isoformat() if trial_end_ts else None
         try:
             supabase.table("Users").update({
@@ -490,7 +492,8 @@ async def stripe_webhook(request: Request):
     if event["type"] == "customer.subscription.updated":
         sub = event["data"]["object"]
         subscription_id = sub["id"]
-        status = (sub.get("status") or "active").lower()
+        raw_status = (sub.get("status") or "active").lower()
+        status = "trial" if raw_status == "trialing" else raw_status
         trial_end = sub.get("trial_end")
         items = (sub.get("items") or {}).get("data") or []
         price_id = (items[0].get("price") or {}).get("id") if items else None
